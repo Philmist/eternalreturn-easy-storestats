@@ -21,6 +21,44 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
+## Testing
+
+Use the helper scripts to ensure the package is installed in editable mode
+with its test dependencies before running the test suite:
+
+```bash
+./scripts/run_tests.sh
+```
+
+On Windows (PowerShell):
+
+```powershell
+./scripts/run_tests.ps1
+```
+
+From a non-PowerShell shell you can invoke PowerShell manually:
+
+```bash
+pwsh -File scripts/run_tests.ps1
+```
+
+> [!TIP]
+> For projects that need to exercise multiple environments or test matrices,
+> adopting a dedicated runner such as `tox`, `nox`, or GitHub Actions can offer
+> a more scalable alternative to these helper scripts while still ensuring
+> dependencies are installed before the tests execute.
+
+The scripts accept additional arguments that are forwarded to `pytest`, so you
+can run a subset of tests when needed, for example:
+
+```bash
+./scripts/run_tests.sh tests/test_cli.py -k ingest
+```
+
+```powershell
+pwsh ./scripts/run_tests.ps1 tests/test_cli.py -k ingest
+```
+
 ## Library Usage
 
 Basic ingestion from user seeds, storing into SQLite:
