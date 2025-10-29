@@ -52,6 +52,8 @@ class EternalReturnAPIClient:
         """Fetch the paginated match list for the given user."""
 
         url = f"{self.base_url}/v1/user/games/{user_num}"
+        if next_token is not None and type(next_token) is not str:
+            next_token = str(next_token)
         headers = self._headers({"next": next_token} if next_token else None)
         return self._get_json_with_rate_limit(url, headers)
 
