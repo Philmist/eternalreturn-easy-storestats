@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 from pathlib import Path
 from typing import Iterable, Optional
@@ -102,16 +103,22 @@ def run(argv: Optional[Iterable[str]] = None) -> int:
     try:
         store.setup_schema()
         if args.command == "ingest":
+            logging.basicConfig(level=logging.INFO, format="%(message)s")
+            logger = logging.getLogger("er_stats.ingest")
             client = EternalReturnAPIClient(
                 args.base_url,
                 api_key=args.api_key,
                 min_interval=args.min_interval,
                 max_retries=args.max_retries,
             )
+            def report(message: str) -> None:
+                logger.info(message)
+
             manager = IngestionManager(
                 client,
                 store,
                 max_games_per_user=args.max_games,
+                progress_callback=report,
             )
             try:
                 manager.ingest_from_seeds(args.users, depth=args.depth)
