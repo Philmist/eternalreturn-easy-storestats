@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from collections import deque
-from typing import Iterable, Optional, Set
+from typing import Callable, Iterable, Optional, Set
 
 from .api_client import EternalReturnAPIClient
 from .db import SQLiteStore
+
+
+logger = logging.getLogger(__name__)
 
 
 class IngestionManager:
@@ -19,12 +23,20 @@ class IngestionManager:
         *,
         max_games_per_user: Optional[int] = None,
         fetch_game_details: bool = True,
+        progress_callback: Optional[Callable[[str], None]] = None,
     ) -> None:
         self.client = client
         self.store = store
         self.max_games_per_user = max_games_per_user
         self.fetch_game_details = fetch_game_details
         self._seen_games: Set[int] = set()
+        self._progress_callback = progress_callback
+
+    def _report(self, message: str) -> None:
+        if self._progress_callback:
+            self._progress_callback(message)
+        else:
+            logger.info(message)
 
     def ingest_user(self, user_num: int) -> Set[int]:
         """Ingest matches for a single user.
@@ -35,12 +47,16 @@ class IngestionManager:
         discovered: Set[int] = set()
         next_token: Optional[str] = None
         processed = 0
+        self._report(f"Fetching games for user {user_num}")
         while True:
             payload = self.client.fetch_user_games(user_num, next_token)
             games = payload.get("userGames", [])
             for game in games:
                 self.store.upsert_from_game_payload(game)
                 processed += 1
+                self._report(
+                    f"Processed game {processed} for user {user_num}"
+                )
                 if self.fetch_game_details:
                     discovered.update(self._ingest_game_participants(game.get("gameId")))
                 if self.max_games_per_user and processed >= self.max_games_per_user:
@@ -62,7 +78,11 @@ class IngestionManager:
             if user_num in seen_users:
                 continue
             seen_users.add(user_num)
+            self._report(f"Ingesting user {user_num} at depth {current_depth}")
             new_users = self.ingest_user(user_num)
+            self._report(
+                f"Discovered {len(new_users)} new users from user {user_num}"
+            )
             if current_depth + 1 > depth:
                 continue
             for next_user in new_users:
@@ -79,6 +99,9 @@ class IngestionManager:
         for participant in participants:
             self.store.upsert_from_game_payload(participant)
             discovered.add(participant.get("userNum"))
+        self._report(
+            f"Fetched {len(participants)} participants for game {game_id}"
+        )
         return discovered
 
 
