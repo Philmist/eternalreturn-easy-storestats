@@ -83,7 +83,8 @@ Ingest data into a SQLite DB:
 python -m er_stats.cli --db er.sqlite ingest \
   --base-url https://open-api.bser.io \
   --api-key $ER_DEV_APIKEY \
-  --user 1733900 --depth 1 --max-games 50
+  --user 1733900 --depth 1 --max-games 50 \
+  --min-interval 1.0 --max-retries 3
 ```
 
 Run aggregations (outputs JSON to stdout):
@@ -120,3 +121,5 @@ python -m er_stats.cli --db er.sqlite mmr \
 
 - API base URL is typically `https://open-api.bser.io` and requires an `x-api-key`.
 - Timestamps are normalized to ISO-8601 where possible; raw JSON is preserved.
+- The client enforces a default 1 request/second rate limit. You can override
+  via `--min-interval` and control 429 retry attempts with `--max-retries`.

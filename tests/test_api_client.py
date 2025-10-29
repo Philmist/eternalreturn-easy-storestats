@@ -39,10 +39,10 @@ def test_iter_user_games_paginates():
         base_url="https://example.invalid",
         api_key="key",
         session=session,
+        min_interval=0.0,  # disable delay in tests
     )
 
     items = list(client.iter_user_games(123))
     assert [i["gameId"] for i in items] == [1, 2, 3]
     # API key header present
     assert any("x-api-key" in h for _, h, _ in session.calls)
-

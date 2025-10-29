@@ -45,6 +45,18 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         default=None,
         help="Maximum number of games to fetch per user (omit for all)",
     )
+    ingest_parser.add_argument(
+        "--min-interval",
+        type=float,
+        default=1.0,
+        help="Minimum seconds between API requests (rate limit)",
+    )
+    ingest_parser.add_argument(
+        "--max-retries",
+        type=int,
+        default=3,
+        help="Max retries on HTTP 429 Too Many Requests",
+    )
 
     def add_context_args(subparser: argparse.ArgumentParser) -> None:
         subparser.add_argument("--season", type=int, required=True, help="Season ID filter")
@@ -90,7 +102,12 @@ def run(argv: Optional[Iterable[str]] = None) -> int:
     try:
         store.setup_schema()
         if args.command == "ingest":
-            client = EternalReturnAPIClient(args.base_url, api_key=args.api_key)
+            client = EternalReturnAPIClient(
+                args.base_url,
+                api_key=args.api_key,
+                min_interval=args.min_interval,
+                max_retries=args.max_retries,
+            )
             manager = IngestionManager(
                 client,
                 store,
