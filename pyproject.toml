@@ -1,0 +1,21 @@
+[project]
+name = "er-stats"
+version = "0.1.0"
+description = "Ingest Eternal Return API data into SQLite and run lightweight analytics."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+authors = [
+  { name = "Eternal Return Easy Store Stats" }
+]
+dependencies = [
+  "requests>=2.31.0",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest>=7.4",
+]
+
+[project.scripts]
+er-stats = "er_stats.cli:main"
