@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import sqlite3
+import functools
 from contextlib import contextmanager
 from typing import Any, Dict, Iterator, Optional
 
@@ -30,15 +31,14 @@ def parse_start_time(value: Optional[str]) -> Optional[str]:
         return value
 
 
-def _resolve_ml_bot(game: Dict[str, Any]) -> Optional[int]:
-    """Return 1 when either mlbot flag is truthy, 0 when explicitly false, else None."""
+def _resolve_ml_bot(game: Dict[str, Any]) -> int:
+    """Return 1 when either mlbot flag is truthy, 0 when explicitly false, else return 0."""
 
     flags = [game.get("mlbot"), game.get("isMLBot")]
-    for flag in flags:
-        if flag is None:
-            continue
-        return int(bool(flag))
-    return None
+    flag = functools.reduce(lambda l, r: True if l is True or r is True else False if l is False or r is False else None, flags, None)
+    if flag is None:
+        return 0
+    return int(bool(flag))
 
 
 class SQLiteStore:
@@ -74,7 +74,7 @@ class SQLiteStore:
                     first_seen TEXT,
                     last_seen TEXT,
                     last_mmr INTEGER,
-                    last_mlbot INTEGER DEFAULT 0,
+                    ml_bot INTEGER DEFAULT 0,
                     last_language TEXT
                 );
 
@@ -183,15 +183,15 @@ class SQLiteStore:
             cur.execute(
                 """
                 INSERT INTO users (
-                    user_num, nickname, first_seen, last_seen, last_mmr, last_mlbot, last_language
+                    user_num, nickname, first_seen, last_seen, last_mmr, ml_bot, last_language
                 ) VALUES (
-                    :user_num, :nickname, :first_seen, :last_seen, :last_mmr, :last_mlbot, :last_language
+                    :user_num, :nickname, :first_seen, :last_seen, :last_mmr, :ml_bot, :last_language
                 )
                 ON CONFLICT(user_num) DO UPDATE SET
                     nickname=excluded.nickname,
                     last_seen=MAX(users.last_seen, excluded.last_seen),
                     last_mmr=excluded.last_mmr,
-                    last_mlbot=excluded.last_mlbot,
+                    ml_bot=excluded.ml_bot,
                     last_language=excluded.last_language
                 """,
                 {
@@ -200,7 +200,7 @@ class SQLiteStore:
                     "first_seen": start_time,
                     "last_seen": start_time,
                     "last_mmr": mmr_after,
-                    "last_mlbot": ml_bot_flag,
+                    "ml_bot": ml_bot_flag,
                     "last_language": language,
                 },
             )

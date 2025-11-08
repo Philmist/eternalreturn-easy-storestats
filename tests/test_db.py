@@ -42,3 +42,25 @@ def test_setup_and_upsert_roundtrip(store, make_game):
     assert row[0] == 1
     assert row[1] == 20
 
+
+def test_store_mlbot(store, make_game):
+    bot_user_num = 100
+    game = make_game(game_id=1, user_num=bot_user_num, mlbot=True)
+    store.upsert_from_game_payload(game)
+
+    pc_user_num = 200
+    game = make_game(game_id=1, user_num=pc_user_num, mlbot=False)
+    store.upsert_from_game_payload(game)
+
+    old_user_num = 300
+    game = make_game(game_id=1, user_num=old_user_num, mlbot=None)
+    store.upsert_from_game_payload(game)
+
+    cur = store.connection.execute("SELECT COUNT(*) FROM users WHERE user_num = ? AND ml_bot = 1", (bot_user_num,))
+    assert cur.fetchone()[0] == 1
+
+    cur = store.connection.execute("SELECT COUNT(*) FROM users WHERE user_num = ? AND ml_bot = 0", (pc_user_num,))
+    assert cur.fetchone()[0] == 1
+
+    cur = store.connection.execute("SELECT COUNT(*) FROM users WHERE user_num = ? AND ml_bot = 0", (old_user_num,))
+    assert cur.fetchone()[0] == 1
