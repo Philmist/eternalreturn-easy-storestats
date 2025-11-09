@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import datetime as dt
-import json
 import sqlite3
 import functools
 from contextlib import contextmanager
@@ -88,7 +87,6 @@ class SQLiteStore:
                     version_minor INTEGER,
                     start_dtm TEXT,
                     duration INTEGER,
-                    raw_json TEXT,
                     UNIQUE(game_id)
                 );
 
@@ -114,7 +112,6 @@ class SQLiteStore:
                     premade INTEGER,
                     language TEXT,
                     ml_bot INTEGER,
-                    raw_json TEXT,
                     PRIMARY KEY (game_id, user_num),
                     FOREIGN KEY (game_id) REFERENCES matches(game_id) ON DELETE CASCADE
                 );
@@ -219,11 +216,10 @@ class SQLiteStore:
                     version_major,
                     version_minor,
                     start_dtm,
-                    duration,
-                    raw_json
+                    duration
                 ) VALUES (
                     :game_id, :season_id, :matching_mode, :matching_team_mode, :server_name,
-                    :version_major, :version_minor, :start_dtm, :duration, :raw_json
+                    :version_major, :version_minor, :start_dtm, :duration
                 )
                 ON CONFLICT(game_id) DO UPDATE SET
                     season_id=excluded.season_id,
@@ -233,8 +229,7 @@ class SQLiteStore:
                     version_major=excluded.version_major,
                     version_minor=excluded.version_minor,
                     start_dtm=excluded.start_dtm,
-                    duration=excluded.duration,
-                    raw_json=excluded.raw_json
+                    duration=excluded.duration
                 """,
                 {
                     "game_id": game.get("gameId"),
@@ -246,7 +241,6 @@ class SQLiteStore:
                     "version_minor": game.get("versionMinor"),
                     "start_dtm": parse_start_time(game.get("startDtm")),
                     "duration": game.get("duration"),
-                    "raw_json": json.dumps(game, ensure_ascii=False),
                 },
             )
         self.connection.commit()
@@ -274,7 +268,6 @@ class SQLiteStore:
             "premade": game.get("preMade"),
             "language": game.get("language"),
             "ml_bot": _resolve_ml_bot(game),
-            "raw_json": json.dumps(game, ensure_ascii=False),
         }
         with self.cursor() as cur:
             cur.execute(
@@ -284,13 +277,13 @@ class SQLiteStore:
                     player_kill, player_assistant, monster_kill, mmr_after,
                     mmr_gain, mmr_loss_entry_cost, victory, play_time,
                     damage_to_player, character_level, best_weapon,
-                    best_weapon_level, team_number, premade, language, ml_bot, raw_json
+                    best_weapon_level, team_number, premade, language, ml_bot
                 ) VALUES (
                     :game_id, :user_num, :character_num, :skin_code, :game_rank,
                     :player_kill, :player_assistant, :monster_kill, :mmr_after,
                     :mmr_gain, :mmr_loss_entry_cost, :victory, :play_time,
                     :damage_to_player, :character_level, :best_weapon,
-                    :best_weapon_level, :team_number, :premade, :language, :ml_bot, :raw_json
+                    :best_weapon_level, :team_number, :premade, :language, :ml_bot
                 )
                 ON CONFLICT(game_id, user_num) DO UPDATE SET
                     character_num=excluded.character_num,
@@ -311,8 +304,7 @@ class SQLiteStore:
                     team_number=excluded.team_number,
                     premade=excluded.premade,
                     language=excluded.language,
-                    ml_bot=excluded.ml_bot,
-                    raw_json=excluded.raw_json
+                    ml_bot=excluded.ml_bot
                 """,
                 payload,
             )

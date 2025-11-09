@@ -125,6 +125,30 @@ python -m er_stats.cli --db er.sqlite ingest \
   --min-interval 1.0 --max-retries 3
 ```
 
+Write Parquet datasets during ingest (for DuckDB/analytics):
+
+```bash
+python -m er_stats.cli --db er.sqlite ingest \
+  --base-url https://open-api.bser.io \
+  --api-key $ER_DEV_APIKEY \
+  --user 1733900 --depth 1 \
+  --parquet-dir data/parquet
+```
+
+This creates partitioned datasets under `data/parquet/`:
+- `matches/season_id=..../server_name=.../matching_mode=.../date=YYYY-MM-DD/*.parquet`
+- `participants/season_id=..../server_name=.../matching_mode=.../date=YYYY-MM-DD/*.parquet`
+
+You can query them directly with DuckDB, for example:
+
+```sql
+SELECT character_num, AVG(game_rank) AS avg_rank
+FROM 'data/parquet/participants/**/*.parquet'
+WHERE season_id=35 AND server_name='NA' AND matching_mode=3 AND matching_team_mode=1
+GROUP BY character_num
+ORDER BY avg_rank;
+```
+
 Run aggregations (outputs JSON to stdout):
 
 ```bash
@@ -158,6 +182,6 @@ python -m er_stats.cli --db er.sqlite mmr \
 ## Notes
 
 - API base URL is typically `https://open-api.bser.io` and requires an `x-api-key`.
-- Timestamps are normalized to ISO-8601 where possible; raw JSON is preserved.
+- Timestamps are normalized to ISO-8601 where possible.
 - The client enforces a default 1 request/second rate limit. You can override
   via `--min-interval` and control 429 retry attempts with `--max-retries`.

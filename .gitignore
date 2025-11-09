@@ -215,5 +215,6 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# SQLite3 Databases
+# Live Data
 *.sqlite3
+data/**

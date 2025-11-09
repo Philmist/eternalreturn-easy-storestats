@@ -29,7 +29,7 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     ingest_parser = subparsers.add_parser("ingest", help="Ingest matches starting from user seeds")
-    ingest_parser.add_argument("--base-url", required=True, help="Eternal Return API base URL")
+    ingest_parser.add_argument("--base-url", default="https://open-api.bser.io/", help="Eternal Return API base URL")
     ingest_parser.add_argument("--api-key", help="API key for authentication")
     ingest_parser.add_argument(
         "--user",
@@ -58,6 +58,12 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         default=3,
         help="Max retries on HTTP 429 Too Many Requests",
     )
+    ingest_parser.add_argument(
+        "--parquet-dir",
+        type=Path,
+        default=None,
+        help="Optional directory to write Parquet datasets (matches, participants)",
+    )
 
     def add_context_args(subparser: argparse.ArgumentParser) -> None:
         subparser.add_argument("--season", type=int, required=True, help="Season ID filter")
@@ -66,7 +72,7 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         subparser.add_argument(
             "--team-mode",
             type=int,
-            required=True,
+            default=3,
             help="Matching team mode filter",
         )
 
@@ -113,11 +119,18 @@ def run(argv: Optional[Iterable[str]] = None) -> int:
             )
             def report(message: str) -> None:
                 logger.info(message)
-
+            parquet_exporter = None
+            if args.parquet_dir is not None:
+                try:
+                    from .parquet_export import ParquetExporter
+                    parquet_exporter = ParquetExporter(args.parquet_dir)
+                except Exception as e:
+                    logger.warning("Parquet export disabled: %s", e)
             manager = IngestionManager(
                 client,
                 store,
                 max_games_per_user=args.max_games,
+                parquet_exporter=parquet_exporter,
                 progress_callback=report,
             )
             try:

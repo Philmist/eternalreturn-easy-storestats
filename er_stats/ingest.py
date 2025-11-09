@@ -8,6 +8,11 @@ from typing import Callable, Iterable, Optional, Set
 
 from .api_client import EternalReturnAPIClient
 from .db import SQLiteStore
+try:
+    # Optional Parquet export; available when pyarrow is installed
+    from .parquet_export import ParquetExporter
+except Exception:  # pragma: no cover - optional dependency
+    ParquetExporter = None  # type: ignore
 
 
 logger = logging.getLogger(__name__)
@@ -24,6 +29,7 @@ class IngestionManager:
         max_games_per_user: Optional[int] = None,
         fetch_game_details: bool = True,
         progress_callback: Optional[Callable[[str], None]] = None,
+        parquet_exporter: Optional["ParquetExporter"] = None,
     ) -> None:
         self.client = client
         self.store = store
@@ -31,6 +37,7 @@ class IngestionManager:
         self.fetch_game_details = fetch_game_details
         self._seen_games: Set[int] = set()
         self._progress_callback = progress_callback
+        self._parquet = parquet_exporter
 
     def _report(self, message: str) -> None:
         if self._progress_callback:
@@ -53,6 +60,8 @@ class IngestionManager:
             games = payload.get("userGames", [])
             for game in games:
                 self.store.upsert_from_game_payload(game)
+                if self._parquet is not None:
+                    self._parquet.write_from_game_payload(game)
                 processed += 1
                 self._report(
                     f"Processed game {processed} for user {user_num}"
@@ -98,6 +107,8 @@ class IngestionManager:
         discovered: Set[int] = set()
         for participant in participants:
             self.store.upsert_from_game_payload(participant)
+            if self._parquet is not None:
+                self._parquet.write_from_game_payload(participant)
             discovered.add(participant.get("userNum"))
         self._report(
             f"Fetched {len(participants)} participants for game {game_id}"

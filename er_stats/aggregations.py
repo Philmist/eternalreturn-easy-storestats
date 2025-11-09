@@ -124,6 +124,7 @@ def bot_usage_statistics(
                AVG(game_rank) AS average_rank,
                COUNT(*) AS matches
         FROM filtered
+        WHERE ml_bot = 1
         GROUP BY user_num, character_num
         HAVING matches >= :min_matches
         ORDER BY ml_bot DESC, matches DESC
