@@ -11,7 +11,8 @@ efficient queries with engines like DuckDB.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Optional, Set, Tuple, List
+from typing import Any, Dict, Optional, Set, Tuple, List, DefaultDict
+from collections import defaultdict
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -194,7 +195,7 @@ def _safe_list_float(value: Any) -> Optional[List[Optional[float]]]:
 class ParquetExporter:
     """Export match and participant rows to Parquet datasets."""
 
-    def __init__(self, base_dir: Path) -> None:
+    def __init__(self, base_dir: Path, *, flush_rows: int = 10000, compression: Optional[str] = None) -> None:
         self.base_dir = Path(base_dir)
         self.matches_root = self.base_dir / "matches"
         self.participants_root = self.base_dir / "participants"
@@ -202,6 +203,12 @@ class ParquetExporter:
         self.participants_root.mkdir(parents=True, exist_ok=True)
         self._seen_matches: Set[int] = set()
         self._seen_participants: Set[Tuple[int, int]] = set()
+        self._flush_rows = int(flush_rows)
+        self._compression = compression
+        # Buffers keyed by (season_id, server_name, matching_mode, date)
+        self._buf_matches: DefaultDict[Tuple[Optional[int], str, Optional[int], Optional[str]], List[Dict[str, Any]]] = defaultdict(list)
+        self._buf_participants: DefaultDict[Tuple[Optional[int], str, Optional[int], Optional[str]], List[Dict[str, Any]]] = defaultdict(list)
+        self._file_counters: DefaultDict[Tuple[Optional[int], str, Optional[int], Optional[str]], int] = defaultdict(int)
 
     def _partition_dir(self, root: Path, row: Dict[str, Any]) -> Path:
         def as_str(v: Any) -> str:
@@ -218,6 +225,24 @@ class ParquetExporter:
         d.mkdir(parents=True, exist_ok=True)
         return d
 
+    def _partition_key(self, game: Dict[str, Any]) -> Tuple[Optional[int], str, Optional[int], Optional[str]]:
+        return (
+            _safe_int(game.get("seasonId")),
+            str(game.get("serverName") or ""),
+            _safe_int(game.get("matchingMode")),
+            _date_part(game.get("startDtm")),
+        )
+
+    def _dir_from_key(self, root: Path, key: Tuple[Optional[int], str, Optional[int], Optional[str]]) -> Path:
+        season_id, server_name, matching_mode, date = key
+        parts = {
+            "season_id": season_id,
+            "server_name": server_name,
+            "matching_mode": matching_mode,
+            "date": date,
+        }
+        return self._partition_dir(root, parts)
+
     def write_from_game_payload(self, game: Dict[str, Any]) -> None:
         """Write both match and participant row(s) from a single userGame payload.
 
@@ -230,15 +255,17 @@ class ParquetExporter:
         if game_id is None or user_num is None:
             return
 
-        # Always attempt participant first; safe due to de-dup set
-        self._write_participant(game)
+        key = self._partition_key(game)
+
+        # Participant buffer
+        self._enqueue_participant(game)
 
         # Then the match one-liner (only once per game_id)
         if game_id not in self._seen_matches:
             self._seen_matches.add(game_id)
-            self._write_match(game)
+            self._enqueue_match(game, key)
 
-    def _write_match(self, game: Dict[str, Any]) -> None:
+    def _enqueue_match(self, game: Dict[str, Any], key: Tuple[Optional[int], str, Optional[int], Optional[str]]) -> None:
         row = {
             "game_id": _safe_int(game.get("gameId")),
             "version_major": _safe_int(game.get("versionMajor")),
@@ -246,26 +273,18 @@ class ParquetExporter:
             "start_dtm": parse_start_time(game.get("startDtm")),
             "duration": _safe_int(game.get("duration")),
         }
-        table = pa.table({k: [row.get(k)] for k in MATCH_SCHEMA.names}, schema=MATCH_SCHEMA)
-        # Build partition context from the game payload (season/server/mode/date)
-        part_row = {
-            "season_id": _safe_int(game.get("seasonId")),
-            "server_name": str(game.get("serverName") or ""),
-            "matching_mode": _safe_int(game.get("matchingMode")),
-            "date": _date_part(game.get("startDtm")),
-        }
-        dirpath = self._partition_dir(self.matches_root, part_row)
-        filename = dirpath / f"part-{row['game_id']}.parquet"
-        if not filename.exists():
-            pq.write_table(table, filename)
+        self._buf_matches[key].append(row)
+        if len(self._buf_matches[key]) >= self._flush_rows:
+            self._flush_partition(self.matches_root, key, self._buf_matches[key], MATCH_SCHEMA, prefix="matches")
+            self._buf_matches[key].clear()
 
-    def _write_participant(self, game: Dict[str, Any]) -> None:
+    def _enqueue_participant(self, game: Dict[str, Any]) -> None:
         game_id = _safe_int(game.get("gameId"))
         user_num = _safe_int(game.get("userNum"))
-        key = (game_id or -1, user_num or -1)
-        if key in self._seen_participants:
+        dup_key = (game_id or -1, user_num or -1)
+        if dup_key in self._seen_participants:
             return
-        self._seen_participants.add(key)
+        self._seen_participants.add(dup_key)
 
         row = {
             # Identifiers
@@ -397,18 +416,32 @@ class ParquetExporter:
         row["credit_source"] = game.get("creditSource") or None
         row["event_mission_result"] = game.get("eventMissionResult") or None
 
-        table = pa.table({k: [row.get(k)] for k in PARTICIPANT_SCHEMA.names}, schema=PARTICIPANT_SCHEMA)
-        # Build partition directory using original game dict fields
-        part_row = {
-            "season_id": _safe_int(game.get("seasonId")),
-            "server_name": str(game.get("serverName") or ""),
-            "matching_mode": _safe_int(game.get("matchingMode")),
-            "date": _date_part(game.get("startDtm")),
-        }
-        dirpath = self._partition_dir(self.participants_root, part_row)
-        filename = dirpath / f"part-{row['game_id']}-{row['user_num']}.parquet"
-        if not filename.exists():
-            pq.write_table(table, filename)
+        self._buf_participants[self._partition_key(game)].append(row)
+        if len(self._buf_participants[self._partition_key(game)]) >= self._flush_rows:
+            self._flush_partition(self.participants_root, self._partition_key(game), self._buf_participants[self._partition_key(game)], PARTICIPANT_SCHEMA, prefix="participants")
+            self._buf_participants[self._partition_key(game)].clear()
+
+    def _flush_partition(self, root: Path, key: Tuple[Optional[int], str, Optional[int], Optional[str]], rows: List[Dict[str, Any]], schema: pa.Schema, *, prefix: str) -> None:
+        if not rows:
+            return
+        dirpath = self._dir_from_key(root, key)
+        # Unique filename per flush
+        self._file_counters[key] += 1
+        filename = dirpath / f"{prefix}-part-{self._file_counters[key]:05d}.parquet"
+        columns = {name: [r.get(name) for r in rows] for name in schema.names}
+        table = pa.table(columns, schema=schema)
+        pq.write_table(table, filename, compression=self._compression)
+
+    def close(self) -> None:
+        # Flush remaining buffers
+        for key, rows in list(self._buf_matches.items()):
+            if rows:
+                self._flush_partition(self.matches_root, key, rows, MATCH_SCHEMA, prefix="matches")
+                rows.clear()
+        for key, rows in list(self._buf_participants.items()):
+            if rows:
+                self._flush_partition(self.participants_root, key, rows, PARTICIPANT_SCHEMA, prefix="participants")
+                rows.clear()
 
 
 __all__ = ["ParquetExporter"]

@@ -54,6 +54,8 @@ def test_ingestion_manager_writes_sqlite_and_parquet(store, tmp_path, make_game)
     manager = IngestionManager(client, store, parquet_exporter=exporter)
 
     discovered = manager.ingest_user(100)
+    # Ensure buffered Parquet rows are flushed
+    exporter.close()
     assert {200, 201, 300}.issubset(discovered)
 
     cur = store.connection.execute("SELECT COUNT(*) FROM matches")

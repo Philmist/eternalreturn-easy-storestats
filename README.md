@@ -21,6 +21,14 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
+For development and running tests (installs pytest via extras):
+
+```bash
+pip install -e .[test]
+# Then run tests
+python -m pytest -q
+```
+
 ## Testing
 
 Use the helper scripts to ensure the package is installed in editable mode
@@ -148,6 +156,20 @@ WHERE season_id=35 AND server_name='NA' AND matching_mode=3 AND matching_team_mo
 GROUP BY character_num
 ORDER BY avg_rank;
 ```
+
+Parquet file counts and compaction
+- Ingest batches rows per partition to reduce small files. You can tune batching by adjusting `flush_rows` in `ParquetExporter` (code) if needed.
+- To compact and compress an existing dataset (e.g., many small files) into ZSTD-compressed Parquet with larger row groups:
+
+```bash
+python -m er_stats.cli parquet-compact \
+  --src data/parquet/participants \
+  --dst data/parquet_compacted/participants \
+  --compression zstd \
+  --max-rows-per-file 250000
+```
+
+Repeat for `matches` if desired, or point `--src` to the root (e.g., `data/parquet`) to rewrite all partitions.
 
 Run aggregations (outputs JSON to stdout):
 
