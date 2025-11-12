@@ -65,11 +65,6 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         help="Optional directory to write Parquet datasets (matches, participants)",
     )
 
-    compact_parser = subparsers.add_parser("parquet-compact", help="Compact and compress an existing Parquet dataset")
-    compact_parser.add_argument("--src", type=Path, required=True, help="Source Parquet root (hive partitioned)")
-    compact_parser.add_argument("--dst", type=Path, required=True, help="Destination Parquet root (will be created)")
-    compact_parser.add_argument("--compression", default="zstd", help="Parquet compression codec (default: zstd)")
-    compact_parser.add_argument("--max-rows-per-file", type=int, default=250000, help="Max rows per output file")
 
     def add_context_args(subparser: argparse.ArgumentParser) -> None:
         subparser.add_argument("--season", type=int, required=True, help="Season ID filter")
@@ -150,34 +145,7 @@ def run(argv: Optional[Iterable[str]] = None) -> int:
                 client.close()
             return 0
 
-        if args.command == "parquet-compact":
-            # Compact and compress existing dataset
-            try:
-                import pyarrow.dataset as ds
-                import pyarrow as pa
-                import pyarrow.parquet as pq
-            except Exception as e:
-                print(f"pyarrow is required for parquet compaction: {e}", file=sys.stderr)
-                return 2
-
-            src = args.src
-            dst = args.dst
-            dst.mkdir(parents=True, exist_ok=True)
-
-            fmt = ds.ParquetFileFormat()
-            opts = fmt.make_write_options(compression=args.compression)
-            dataset = ds.dataset(str(src), format=fmt, partitioning="hive")
-            ds.write_dataset(
-                data=dataset,
-                base_dir=str(dst),
-                format=fmt,
-                file_options=opts,
-                partitioning=dataset.partitioning,
-                max_rows_per_file=int(args.max_rows_per_file),
-                max_rows_per_group=int(args.max_rows_per_file),
-                existing_data_behavior="overwrite_or_ignore",
-            )
-            return 0
+        
 
         context = {
             "season_id": args.season,

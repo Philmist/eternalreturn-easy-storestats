@@ -26,6 +26,7 @@ MATCH_SCHEMA = pa.schema([
     pa.field("version_minor", pa.int64()),
     pa.field("start_dtm", pa.string()),
     pa.field("duration", pa.int64()),
+    pa.field("server_name", pa.string()),
 ])
 
 PARTICIPANT_SCHEMA = pa.schema([
@@ -50,6 +51,7 @@ PARTICIPANT_SCHEMA = pa.schema([
     pa.field("premade", pa.int64()),
     pa.field("language", pa.string()),
     pa.field("ml_bot", pa.int64()),
+    pa.field("server_name", pa.string()),
     # Extended scalar stats
     pa.field("mmr_before", pa.int64()),
     pa.field("watch_time", pa.int64()),
@@ -272,6 +274,7 @@ class ParquetExporter:
             "version_minor": _safe_int(game.get("versionMinor")),
             "start_dtm": parse_start_time(game.get("startDtm")),
             "duration": _safe_int(game.get("duration")),
+            "server_name": str(game.get("serverName") or ""),
         }
         self._buf_matches[key].append(row)
         if len(self._buf_matches[key]) >= self._flush_rows:
@@ -309,6 +312,7 @@ class ParquetExporter:
             "team_number": _safe_int(game.get("teamNumber")),
             "premade": _safe_int(game.get("preMade")),
             "language": str(game.get("language") or ""),
+            "server_name": str(game.get("serverName") or ""),
         }
         # ML bot flag may be present under different keys; standardize to int 0/1
         ml_bot_flag = game.get("mlbot")
@@ -430,7 +434,7 @@ class ParquetExporter:
         filename = dirpath / f"{prefix}-part-{self._file_counters[key]:05d}.parquet"
         columns = {name: [r.get(name) for r in rows] for name in schema.names}
         table = pa.table(columns, schema=schema)
-        pq.write_table(table, filename, compression=self._compression)
+        pq.write_table(table, filename, compression=self._compression, use_dictionary=["server_name"])
 
     def close(self) -> None:
         # Flush remaining buffers

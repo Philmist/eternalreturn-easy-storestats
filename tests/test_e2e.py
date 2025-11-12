@@ -1,11 +1,9 @@
-import os
-from pathlib import Path
 from typing import Any, Dict, Optional
 
 import pytest
 
 from er_stats.ingest import IngestionManager
-from er_stats.parquet_export import ParquetExporter
+from er_stats.parquet_export import ParquetExporter, MATCH_SCHEMA, PARTICIPANT_SCHEMA
 
 
 pytest.importorskip("pyarrow")
@@ -70,14 +68,17 @@ def test_ingestion_manager_writes_sqlite_and_parquet(store, tmp_path, make_game)
 
     import pyarrow.parquet as pq
 
-    # Row counts should match unique rows written
-    matches_rows = sum(pq.read_table(p).num_rows for p in matches_files)
-    participants_rows = sum(pq.read_table(p).num_rows for p in participants_files)
+    # Row counts should match unique rows written (use metadata to avoid schema merge issues)
+    matches_rows = sum(pq.ParquetFile(p).metadata.num_rows for p in matches_files)
+    participants_rows = sum(pq.ParquetFile(p).metadata.num_rows for p in participants_files)
     assert matches_rows == 2
     assert participants_rows == 5
 
+    # infer schema
+    schema = pq.read_schema(participants_files[0])
+
     # Validate expected columns exist in participants (no partition columns inside file)
-    t = pq.read_table(participants_files[0])
+    t = pq.read_table(participants_files[0], schema=schema)
     cols = set(t.column_names)
     assert {"game_id", "user_num", "character_num", "game_rank"}.issubset(cols)
 

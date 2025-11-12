@@ -1,5 +1,3 @@
-import os
-from pathlib import Path
 from typing import Any, Dict
 
 import pytest
@@ -35,7 +33,10 @@ def test_exporter_buffers_and_flushes(tmp_path, make_game):
     # Validate total rows read back
     import pyarrow.parquet as pq
 
-    total = sum(pq.read_table(p).num_rows for p in participants_files)
+    # infer schema
+    schema = pq.read_schema(participants_files[0])
+
+    total = sum(pq.read_table(p, schema=schema).num_rows for p in participants_files)
     assert total == 5
 
 
@@ -73,9 +74,8 @@ def test_cli_parquet_compact_merges_small_files(monkeypatch, tmp_path, make_game
     assert len(small_files) >= 3
 
     # Run compaction CLI
-    from er_stats.cli import run as cli_run
-    code = cli_run([
-        "--db", store.path,
+    from er_stats.tools_cli import run as tools_run
+    code = tools_run([
         "parquet-compact",
         "--src", str(src / "participants"),
         "--dst", str(dst / "participants"),
@@ -96,4 +96,3 @@ def test_cli_parquet_compact_merges_small_files(monkeypatch, tmp_path, make_game
     total_rows = sum(fragment.count_rows() for fragment in dset.get_fragments())
     # Original had at least 3 participant rows
     assert total_rows >= 3
-

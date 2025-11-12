@@ -162,7 +162,15 @@ Parquet file counts and compaction
 - To compact and compress an existing dataset (e.g., many small files) into ZSTD-compressed Parquet with larger row groups:
 
 ```bash
-python -m er_stats.cli parquet-compact \
+# Using the separate tools CLI entry
+er-stats-tools parquet-compact \
+  --src data/parquet/participants \
+  --dst data/parquet_compacted/participants \
+  --compression zstd \
+  --max-rows-per-file 250000
+
+# Or via module path
+python -m er_stats.tools_cli parquet-compact \
   --src data/parquet/participants \
   --dst data/parquet_compacted/participants \
   --compression zstd \

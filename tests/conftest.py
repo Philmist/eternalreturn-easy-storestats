@@ -1,9 +1,18 @@
-import json
+import sys
+from pathlib import Path
 from typing import Dict, Any
 
 import pytest
-
 from er_stats import SQLiteStore
+
+# Make tests robust to both flat and src/ layouts without requiring installation
+_HERE = Path(__file__).resolve()
+_ROOT = _HERE.parents[1]
+_SRC = _ROOT / "src"
+for _p in (_SRC, _ROOT):
+    if _p.exists() and str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
+
 
 
 @pytest.fixture()
