@@ -217,4 +217,5 @@ __marimo__/
 
 # Live Data
 *.sqlite3
+*.duckdb
 data/**
