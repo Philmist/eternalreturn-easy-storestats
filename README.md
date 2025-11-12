@@ -215,3 +215,20 @@ python -m er_stats.cli --db er.sqlite mmr \
 - Timestamps are normalized to ISO-8601 where possible.
 - The client enforces a default 1 request/second rate limit. You can override
   via `--min-interval` and control 429 retry attempts with `--max-retries`.
+
+## Ingestion Performance and Worst Case
+
+> WARNING: In the worst case, recursive user discovery can explode and take a very long time.
+
+- Breadth-first user discovery expands from each processed user to all participants in their games. If those participants are all new and non-overlapping, the number of users explored grows exponentially with `--depth`.
+- Per user, the workflow performs roughly:
+  - 1 request to list recent games (assuming up to 10 games fit in one page)
+  - Up to 10 requests to fetch per-game participants (one per game)
+  - ≈ 11 requests/user at `--max-games 10` (more if paging or if `--max-games` is larger)
+- With branching factor `b ≈ (games_per_user) × (participants_per_game − 1)`, total processed users can approach `Σ b^i` up to the specified depth. For example, with 10 games/user, 18 participants/game, and `--depth 3`, the theoretical upper bound exceeds 4.9M users and ~54M requests — not realistic in practice due to deduplication, but it illustrates the potential growth.
+
+Recommendations
+- Start conservatively: `--depth 0..1`, `--max-games 3..5`, then scale up gradually.
+- Respect rate limits: tune `--min-interval` and `--max-retries` for your environment.
+- Run in batches and checkpoint: it’s safer to ingest incrementally and monitor growth.
+- Prefer Parquet for analysis: write Parquet during ingest (`--parquet-dir`) to avoid repeated DB reads later; adjust batching (`flush_rows`) to reduce small files.
