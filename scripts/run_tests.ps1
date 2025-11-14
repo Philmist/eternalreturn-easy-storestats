@@ -3,40 +3,28 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 param(
-    [string]$Python = $env:PYTHON,
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$PytestArgs
 )
 
-function Resolve-PythonCommand {
-    param([string]$Preferred)
-
-    if ($Preferred) {
-        return $Preferred
+function Assert-UvAvailable {
+    if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
+        throw "The 'uv' CLI is required to install dependencies and run tests."
     }
-
-    foreach ($candidate in @('python3', 'python')) {
-        if (Get-Command $candidate -ErrorAction SilentlyContinue) {
-            return $candidate
-        }
-    }
-
-    throw "Unable to locate a Python interpreter. Specify one with the PYTHON environment variable or --Python parameter."
 }
 
-$Python = Resolve-PythonCommand -Preferred $Python
+Assert-UvAvailable
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RootDir = Resolve-Path (Join-Path $ScriptDir "..")
 Set-Location $RootDir
 
-if ($env:VIRTUAL_ENV) {
-    Write-Host "Using virtual environment: $($env:VIRTUAL_ENV)"
-}
+Write-Host "Syncing project dependencies (including test extras) via uv..."
+& uv sync --extra test --frozen
 
-Write-Host "Installing project with test dependencies..."
-& $Python -m pip install -e ".[test]"
+Write-Host "Installing project in editable mode via uv..."
+& uv pip install --editable .
 
-Write-Host "Running pytest..."
-& $Python -m pytest @PytestArgs
+Write-Host "Running pytest with uv..."
+& uv run pytest @PytestArgs
 exit $LASTEXITCODE
