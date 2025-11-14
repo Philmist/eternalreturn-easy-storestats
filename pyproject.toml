@@ -19,6 +19,7 @@ Repository = "https://github.com/Philmist/eternalreturn-easy-storestats.git"
 [dependency-groups]
 dev = [
     "pytest>=9.0",
+    "ruff>=0.14.5",
 ]
 
 [build-system]

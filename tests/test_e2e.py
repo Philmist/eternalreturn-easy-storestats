@@ -3,7 +3,7 @@ from typing import Any, Dict, Optional
 import pytest
 
 from er_stats.ingest import IngestionManager
-from er_stats.parquet_export import ParquetExporter, MATCH_SCHEMA, PARTICIPANT_SCHEMA
+from er_stats.parquet_export import ParquetExporter
 
 
 pytest.importorskip("pyarrow")

@@ -34,7 +34,7 @@ def _resolve_ml_bot(game: Dict[str, Any]) -> int:
     """Return 1 when either mlbot flag is truthy, 0 when explicitly false, else return 0."""
 
     flags = [game.get("mlbot"), game.get("isMLBot")]
-    flag = functools.reduce(lambda l, r: True if l is True or r is True else False if l is False or r is False else None, flags, None)
+    flag = functools.reduce(lambda lv, rv: True if lv is True or rv is True else False if lv is False or rv is False else None, flags, None)
     if flag is None:
         return 0
     return int(bool(flag))

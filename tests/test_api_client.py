@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from er_stats.api_client import EternalReturnAPIClient
 

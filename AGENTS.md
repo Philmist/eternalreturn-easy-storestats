@@ -8,6 +8,7 @@
 
 ## Environment Management
 - Use `uv` for environment management, dependency installation, and command execution during development. Documentation (e.g., `README.md`) should continue to describe workflows with `pip`.
+    - Use `uv sync` to install dependencies.
 - Manage project dependencies through `pyproject.toml` (and keep `requirements.txt` synchronized accordingly).
 
 ## Project-Specific Practices
@@ -18,6 +19,7 @@
 
 ## Testing
 - Use `pytest` as the testing framework.
+    - Use `uv run pytest -q` to run tests.
 - Whenever implementing or modifying functionality, ensure there are corresponding tests that cover the changes and that they pass.
 
 ## Design Principles

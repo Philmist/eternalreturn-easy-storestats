@@ -1,4 +1,3 @@
-import json
 from typing import Any, Dict, Optional
 
 from er_stats.cli import run as cli_run

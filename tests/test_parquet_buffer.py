@@ -85,7 +85,6 @@ def test_cli_parquet_compact_merges_small_files(monkeypatch, tmp_path, make_game
     assert code == 0
 
     # After compaction, expect fewer files and same row count
-    import pyarrow.parquet as pq
     import pyarrow.dataset as ds
 
     out_files = list((dst / "participants").rglob("*.parquet"))
