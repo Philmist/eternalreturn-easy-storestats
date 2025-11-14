@@ -22,6 +22,21 @@ from .db import SQLiteStore
 from .ingest import IngestionManager
 
 
+LOGGER_NAME = "er_stats"
+LOG_FORMAT = "%(message)s"
+
+logger = logging.getLogger(LOGGER_NAME)
+ingest_logger = logging.getLogger(f"{LOGGER_NAME}.ingest")
+
+
+def configure_logging(command: str) -> None:
+    if command == "ingest":
+        level = logging.INFO
+    else:
+        level = logging.ERROR
+    logging.basicConfig(level=level, format=LOG_FORMAT)
+
+
 def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Ingest Eternal Return API data into SQLite and query aggregates.",
@@ -154,6 +169,7 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
 
 def run(argv: Optional[Iterable[str]] = None) -> int:
     args = parse_args(argv)
+    configure_logging(args.command)
 
     db_path: Optional[Path] = None
     ingest_config = None
@@ -162,9 +178,7 @@ def run(argv: Optional[Iterable[str]] = None) -> int:
             try:
                 ingest_config = load_ingest_config(args.config)
             except ConfigError as exc:
-                logging.basicConfig(level=logging.ERROR, format="%(message)s")
-                logger = logging.getLogger("er_stats.ingest")
-                logger.error("%s", exc)
+                ingest_logger.error("%s", exc)
                 return 2
         if args.db is not None:
             db_path = args.db
@@ -174,16 +188,12 @@ def run(argv: Optional[Iterable[str]] = None) -> int:
             if isinstance(db_value, str):
                 db_path = Path(db_value)
         if db_path is None:
-            logging.basicConfig(level=logging.ERROR, format="%(message)s")
-            logger = logging.getLogger("er_stats.ingest")
-            logger.error(
+            ingest_logger.error(
                 "Database path must be provided via --db or ingest.db_path in the config file."
             )
             return 2
     else:
         if args.db is None:
-            logging.basicConfig(level=logging.ERROR, format="%(message)s")
-            logger = logging.getLogger("er_stats")
             logger.error("--db is required for this command.")
             return 2
         db_path = args.db
@@ -192,8 +202,6 @@ def run(argv: Optional[Iterable[str]] = None) -> int:
     try:
         store.setup_schema()
         if args.command == "ingest":
-            logging.basicConfig(level=logging.INFO, format="%(message)s")
-            logger = logging.getLogger("er_stats.ingest")
             ingest_table = (
                 ingest_config.get("ingest", {}) if ingest_config is not None else {}
             )
@@ -219,7 +227,7 @@ def run(argv: Optional[Iterable[str]] = None) -> int:
             )
 
             def report(message: str) -> None:
-                logger.info(message)
+                ingest_logger.info(message)
 
             parquet_exporter = None
             parquet_dir_value = args.parquet_dir
@@ -233,7 +241,7 @@ def run(argv: Optional[Iterable[str]] = None) -> int:
 
                     parquet_exporter = ParquetExporter(parquet_dir_value)
                 except Exception as e:
-                    logger.warning("Parquet export disabled: %s", e)
+                    ingest_logger.warning("Parquet export disabled: %s", e)
             # Build seed user list from --user and --nickname
             seed_users = list(seeds_cfg.get("users", []))
             if args.users:
@@ -253,10 +261,12 @@ def run(argv: Optional[Iterable[str]] = None) -> int:
                             )
                         seed_users.append(user_num)
                     except Exception as e:
-                        logger.error("Failed to resolve nickname '%s': %s", nick, e)
+                        ingest_logger.error(
+                            "Failed to resolve nickname '%s': %s", nick, e
+                        )
                         return 2
             if not seed_users:
-                logger.error(
+                ingest_logger.error(
                     "No seeds provided. Specify at least --user or --nickname."
                 )
                 return 2

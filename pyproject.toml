@@ -48,5 +48,6 @@ strict = true
 extend-select = [
   "FBT",
   "LOG",
+  "G",
   "PT",
 ]
