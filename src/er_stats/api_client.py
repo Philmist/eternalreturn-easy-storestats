@@ -63,6 +63,19 @@ class EternalReturnAPIClient:
         url = f"{self.base_url}/v1/games/{game_id}"
         return self._get_json_with_rate_limit(url, self._headers())
 
+    def fetch_user_by_nickname(self, nickname: str) -> Dict[str, Any]:
+        """Resolve a user's public nickname to their user record.
+
+        Returns the API payload which includes at least:
+          {"code": 200, "message": "Success", "user": {"userNum": int, "nickname": str}}
+
+        Raises for non-2xx responses.
+        """
+        # Endpoint example:
+        #   GET /v1/user/nickname?query=Philmist
+        url = f"{self.base_url}/v1/user/nickname?query={requests.utils.quote(nickname)}"
+        return self._get_json_with_rate_limit(url, self._headers({"accept": "application/json"}))
+
     def close(self) -> None:
         """Close the underlying :class:`requests.Session`."""
 

@@ -179,6 +179,19 @@ python -m er_stats.tools_cli parquet-compact \
 
 Repeat for `matches` if desired, or point `--src` to the root (e.g., `data/parquet`) to rewrite all partitions.
 
+### Ingest by nickname
+
+You can start ingestion using public nicknames instead of numeric `userNum`:
+
+```bash
+python -m er_stats.cli --db er.sqlite ingest \
+  --base-url https://open-api.bser.io \
+  --api-key $ER_DEV_APIKEY \
+  --nickname Philmist --nickname AnotherPlayer \
+  --depth 1 --max-games 10
+```
+The CLI resolves each `--nickname` via `GET /v1/user/nickname?query=...` and combines the results with any `--user` values. At least one of `--user` or `--nickname` is required.
+
 Run aggregations (outputs JSON to stdout):
 
 ```bash

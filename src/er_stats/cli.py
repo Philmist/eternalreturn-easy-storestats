@@ -36,8 +36,16 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         dest="users",
         type=int,
         action="append",
-        required=True,
+        required=False,
         help="Seed user number. Specify multiple times for several seeds.",
+    )
+    ingest_parser.add_argument(
+        "--nickname",
+        dest="nicknames",
+        type=str,
+        action="append",
+        required=False,
+        help="Public nickname to resolve to userNum. Repeatable.",
     )
     ingest_parser.add_argument("--depth", type=int, default=1, help="Recursive depth for user discovery")
     ingest_parser.add_argument(
@@ -127,6 +135,24 @@ def run(argv: Optional[Iterable[str]] = None) -> int:
                     parquet_exporter = ParquetExporter(args.parquet_dir)
                 except Exception as e:
                     logger.warning("Parquet export disabled: %s", e)
+            # Build seed user list from --user and --nickname
+            seed_users = list(args.users or [])
+            if args.nicknames:
+                for nick in args.nicknames:
+                    try:
+                        payload = client.fetch_user_by_nickname(nick)
+                        user = payload.get("user") or {}
+                        user_num = user.get("userNum")
+                        if not isinstance(user_num, int):
+                            raise ValueError(f"Nickname '{nick}' did not resolve to a valid userNum")
+                        seed_users.append(user_num)
+                    except Exception as e:
+                        logger.error("Failed to resolve nickname '%s': %s", nick, e)
+                        return 2
+            if not seed_users:
+                logger.error("No seeds provided. Specify at least --user or --nickname.")
+                return 2
+
             manager = IngestionManager(
                 client,
                 store,
@@ -135,7 +161,7 @@ def run(argv: Optional[Iterable[str]] = None) -> int:
                 progress_callback=report,
             )
             try:
-                manager.ingest_from_seeds(args.users, depth=args.depth)
+                manager.ingest_from_seeds(seed_users, depth=args.depth)
             finally:
                 if parquet_exporter is not None:
                     try:

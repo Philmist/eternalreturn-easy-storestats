@@ -190,6 +190,8 @@ class SQLiteStore:
                     last_mmr=excluded.last_mmr,
                     ml_bot=excluded.ml_bot,
                     last_language=excluded.last_language
+                WHERE
+                    excluded.last_seen > users.last_seen
                 """,
                 {
                     "user_num": user_num,
