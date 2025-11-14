@@ -64,6 +64,10 @@ def _make_game(
         "victory": int(game_rank == 1),
         "playTime": 900,
         "damageToPlayer": 1000,
+        "damageFromPlayer": 500,
+        "damageFromMonster": 120,
+        "damageToMonster": 2500,
+        "damageToPlayer_Shield": 50,
         "characterLevel": 15,
         "bestWeapon": 1,
         "bestWeaponLevel": 10,
@@ -71,9 +75,14 @@ def _make_game(
         "preMade": 0,
         "equipment": {"0": 101101, "1": 101102},
         "equipmentGrade": {"0": 2, "1": 3},
+        "equipFirstItemForLog": {"0": [101101], "1": [101102]},
         "masteryLevel": {"401": 7, "402": 6},
         "skillLevelInfo": {"1015101": 5, "1015102": 4},
         "skillOrderInfo": {"1": 1015101, "2": 1015102},
+        "creditRevivalCount": 1,
+        "creditRevivedOthersCount": 0,
+        "totalGainVFCredit": 150,
+        "totalUseVFCredit": 100,
     }
     if mlbot is not None:
         payload["mlbot"] = mlbot
