@@ -3,19 +3,31 @@ name = "er-stats"
 version = "0.1.0"
 description = "Ingest Eternal Return API data into SQLite and run lightweight analytics."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = "MIT"
 authors = [
-  { name = "Eternal Return Easy Store Stats" }
+  { name = "Philmist" }
 ]
 dependencies = [
   "requests>=2.31.0",
   "pyarrow>=13.0.0",
 ]
 
+[project.urls]
+Repository = "https://github.com/Philmist/eternalreturn-easy-storestats.git"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0",
+]
+
+[build-system]
+requires = ["setuptools>=42"]
+build-backend = "setuptools.build_meta"
+
 [project.optional-dependencies]
 test = [
-  "pytest>=7.4",
+  "pytest>=9.0",
 ]
 
 [project.scripts]
@@ -28,3 +40,4 @@ testpaths = [
   "tests",
   "integration",
 ]
+strict = true
