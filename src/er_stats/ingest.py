@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
 from collections import deque
 from typing import Callable, Iterable, Optional, Set
 
 from .api_client import EternalReturnAPIClient
-from .db import SQLiteStore
+from .db import SQLiteStore, parse_start_time
 try:
     # Optional Parquet export; available when pyarrow is installed
     from .parquet_export import ParquetExporter
@@ -30,6 +31,7 @@ class IngestionManager:
         fetch_game_details: bool = True,
         progress_callback: Optional[Callable[[str], None]] = None,
         parquet_exporter: Optional["ParquetExporter"] = None,
+        only_newer_games: bool = False,
     ) -> None:
         self.client = client
         self.store = store
@@ -38,6 +40,7 @@ class IngestionManager:
         self._seen_games: Set[int] = set()
         self._progress_callback = progress_callback
         self._parquet = parquet_exporter
+        self.only_newer_games = only_newer_games
 
     def _report(self, message: str) -> None:
         if self._progress_callback:
@@ -55,10 +58,37 @@ class IngestionManager:
         next_token: Optional[str] = None
         processed = 0
         self._report(f"Fetching games for user {user_num}")
+        cutoff: Optional[dt.datetime] = None
+        if self.only_newer_games:
+            last_seen = self.store.get_user_last_seen(user_num)
+            if last_seen:
+                try:
+                    cutoff = dt.datetime.fromisoformat(last_seen)
+                except ValueError:
+                    cutoff = None
+
+        stop_due_to_cutoff = False
         while True:
             payload = self.client.fetch_user_games(user_num, next_token)
             games = payload.get("userGames", [])
             for game in games:
+                if cutoff:
+                    start_iso = parse_start_time(game.get("startDtm"))
+                    if start_iso:
+                        try:
+                            start_dt = dt.datetime.fromisoformat(start_iso)
+                        except ValueError:
+                            start_dt = None
+                        else:
+                            if start_dt <= cutoff:
+                                stop_due_to_cutoff = True
+                                self._report(
+                                    "Encountered previously ingested game "
+                                    f"{game.get('gameId')} for user {user_num}; stopping early"
+                                )
+                                break
+                game_id = game.get("gameId")
+                game_already_known = bool(game_id and self.store.has_game(game_id))
                 self.store.upsert_from_game_payload(game)
                 if self._parquet is not None:
                     self._parquet.write_from_game_payload(game)
@@ -67,9 +97,15 @@ class IngestionManager:
                     f"Processed game {processed} for user {user_num}"
                 )
                 if self.fetch_game_details:
-                    discovered.update(self._ingest_game_participants(game.get("gameId")))
+                    discovered.update(
+                        self._ingest_game_participants(
+                            game_id, already_known=game_already_known
+                        )
+                    )
                 if self.max_games_per_user and processed >= self.max_games_per_user:
                     break
+            if stop_due_to_cutoff:
+                break
             if self.max_games_per_user and processed >= self.max_games_per_user:
                 break
             next_token = payload.get("next")
@@ -98,10 +134,20 @@ class IngestionManager:
                 if next_user not in seen_users:
                     queue.append((next_user, current_depth + 1))
 
-    def _ingest_game_participants(self, game_id: Optional[int]) -> Set[int]:
+    def _ingest_game_participants(
+        self, game_id: Optional[int], *, already_known: bool = False
+    ) -> Set[int]:
         if not game_id or game_id in self._seen_games:
             return set()
         self._seen_games.add(game_id)
+        if already_known:
+            cached_participants = self.store.get_participants_for_game(game_id)
+            if cached_participants and len(cached_participants) > 1:
+                self._report(
+                    f"Skipping API fetch for known game {game_id}; "
+                    f"loaded {len(cached_participants)} participants from cache"
+                )
+                return cached_participants
         payload = self.client.fetch_game_result(game_id)
         participants = payload.get("userGames", [])
         discovered: Set[int] = set()
