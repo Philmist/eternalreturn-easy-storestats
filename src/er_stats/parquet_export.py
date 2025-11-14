@@ -44,6 +44,10 @@ PARTICIPANT_SCHEMA = pa.schema([
     pa.field("victory", pa.int64()),
     pa.field("play_time", pa.int64()),
     pa.field("damage_to_player", pa.int64()),
+    pa.field("damage_from_player", pa.int64()),
+    pa.field("damage_from_monster", pa.int64()),
+    pa.field("damage_to_monster", pa.int64()),
+    pa.field("damage_to_player_shield", pa.int64()),
     pa.field("character_level", pa.int64()),
     pa.field("best_weapon", pa.int64()),
     pa.field("best_weapon_level", pa.int64()),
@@ -124,6 +128,11 @@ PARTICIPANT_SCHEMA = pa.schema([
     pa.field("actively_gained_credits", pa.int64()),
     pa.field("used_vf_credits", pa.list_(pa.int64())),
     pa.field("sum_used_vf_credits", pa.int64()),
+    # VF credit cumulative counters (scalar companions to the history arrays above)
+    pa.field("credit_revival_count", pa.int64()),
+    pa.field("credit_revived_others_count", pa.int64()),
+    pa.field("total_gain_vf_credit", pa.int64()),
+    pa.field("total_use_vf_credit", pa.int64()),
     pa.field("craft_mythic", pa.int64()),
     pa.field("player_deaths", pa.int64()),
     pa.field("kill_gamma", pa.bool_()),
@@ -148,6 +157,7 @@ PARTICIPANT_SCHEMA = pa.schema([
     pa.field("kill_monsters", pa.map_(pa.string(), pa.int64())),
     pa.field("credit_source", pa.map_(pa.string(), pa.float64())),
     pa.field("event_mission_result", pa.map_(pa.string(), pa.int64())),
+    pa.field("equip_first_item_for_log", pa.map_(pa.string(), pa.list_(pa.int64()))),
 ])
 
 
@@ -190,6 +200,19 @@ def _safe_list_float(value: Any) -> Optional[List[Optional[float]]]:
         return None
     try:
         return [(_safe_float(v)) for v in list(value)]
+    except Exception:
+        return None
+
+
+def _safe_map_list_int(value: Any) -> Optional[Dict[str, List[Optional[int]]]]:
+    if value is None:
+        return None
+    try:
+        result: Dict[str, List[Optional[int]]] = {}
+        for key, items in dict(value).items():
+            converted = _safe_list_int(items)
+            result[str(key)] = converted or []
+        return result
     except Exception:
         return None
 
@@ -293,7 +316,7 @@ class ParquetExporter:
             # Identifiers
             "game_id": game_id,
             "user_num": user_num,
-            # Stats (subset aligned with SQLite schema)
+            # Core stats mirrored from the SQLite schema along with key combat totals
             "character_num": _safe_int(game.get("characterNum")),
             "skin_code": _safe_int(game.get("skinCode")),
             "game_rank": _safe_int(game.get("gameRank")),
@@ -306,6 +329,10 @@ class ParquetExporter:
             "victory": _safe_int(game.get("victory")),
             "play_time": _safe_int(game.get("playTime")),
             "damage_to_player": _safe_int(game.get("damageToPlayer")),
+            "damage_from_player": _safe_int(game.get("damageFromPlayer")),
+            "damage_from_monster": _safe_int(game.get("damageFromMonster")),
+            "damage_to_monster": _safe_int(game.get("damageToMonster")),
+            "damage_to_player_shield": _safe_int(game.get("damageToPlayer_Shield")),
             "character_level": _safe_int(game.get("characterLevel")),
             "best_weapon": _safe_int(game.get("bestWeapon")),
             "best_weapon_level": _safe_int(game.get("bestWeaponLevel")),
@@ -393,6 +420,11 @@ class ParquetExporter:
             "actively_gained_credits": _safe_int(game.get("activelyGainedCredits")),
             "used_vf_credits": _safe_list_int(game.get("usedVFCredits")),
             "sum_used_vf_credits": _safe_int(game.get("sumUsedVFCredits")),
+            # Scalar rollups corresponding to the VF credit histories above
+            "credit_revival_count": _safe_int(game.get("creditRevivalCount")),
+            "credit_revived_others_count": _safe_int(game.get("creditRevivedOthersCount")),
+            "total_gain_vf_credit": _safe_int(game.get("totalGainVFCredit")),
+            "total_use_vf_credit": _safe_int(game.get("totalUseVFCredit")),
             "craft_mythic": _safe_int(game.get("craftMythic")),
             "player_deaths": _safe_int(game.get("playerDeaths")),
             "kill_gamma": bool(game.get("killGamma")) if game.get("killGamma") is not None else None,
@@ -410,10 +442,11 @@ class ParquetExporter:
             "item_transferred_console": _safe_list_int(game.get("itemTransferredConsole")),
         })
 
-        # Nested maps
+        # Nested maps (equipFirstItem log normalised to map[str, list[int]])
         row["mastery_level"] = game.get("masteryLevel") or None
         row["equipment_map"] = game.get("equipment") or None
         row["equipment_grade_map"] = game.get("equipmentGrade") or None
+        row["equip_first_item_for_log"] = _safe_map_list_int(game.get("equipFirstItemForLog"))
         row["skill_level_info"] = game.get("skillLevelInfo") or None
         row["skill_order_info"] = game.get("skillOrderInfo") or None
         row["kill_monsters"] = game.get("killMonsters") or None
