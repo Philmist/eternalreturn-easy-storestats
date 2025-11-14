@@ -9,6 +9,7 @@ from typing import Callable, Iterable, Optional, Set
 
 from .api_client import EternalReturnAPIClient
 from .db import SQLiteStore, parse_start_time
+
 try:
     # Optional Parquet export; available when pyarrow is installed
     from .parquet_export import ParquetExporter
@@ -93,9 +94,7 @@ class IngestionManager:
                 if self._parquet is not None:
                     self._parquet.write_from_game_payload(game)
                 processed += 1
-                self._report(
-                    f"Processed game {processed} for user {user_num}"
-                )
+                self._report(f"Processed game {processed} for user {user_num}")
                 if self.fetch_game_details:
                     discovered.update(
                         self._ingest_game_participants(
@@ -125,9 +124,7 @@ class IngestionManager:
             seen_users.add(user_num)
             self._report(f"Ingesting user {user_num} at depth {current_depth}")
             new_users = self.ingest_user(user_num)
-            self._report(
-                f"Discovered {len(new_users)} new users from user {user_num}"
-            )
+            self._report(f"Discovered {len(new_users)} new users from user {user_num}")
             if current_depth + 1 > depth:
                 continue
             for next_user in new_users:
@@ -156,9 +153,7 @@ class IngestionManager:
             if self._parquet is not None:
                 self._parquet.write_from_game_payload(participant)
             discovered.add(participant.get("userNum"))
-        self._report(
-            f"Fetched {len(participants)} participants for game {game_id}"
-        )
+        self._report(f"Fetched {len(participants)} participants for game {game_id}")
         return discovered
 
 

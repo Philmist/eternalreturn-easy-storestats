@@ -2,8 +2,12 @@ from er_stats.db import parse_start_time
 
 
 def test_parse_start_time_variants():
-    assert parse_start_time("2025-10-27T23:24:03.003+0900").startswith("2025-10-27T23:24:03")
-    assert parse_start_time("2025-10-27T23:24:03+00:00").startswith("2025-10-27T23:24:03")
+    assert parse_start_time("2025-10-27T23:24:03.003+0900").startswith(
+        "2025-10-27T23:24:03"
+    )
+    assert parse_start_time("2025-10-27T23:24:03+00:00").startswith(
+        "2025-10-27T23:24:03"
+    )
     assert parse_start_time("2025-10-27T23:24:03Z").endswith("+00:00")
     assert parse_start_time(None) is None
     # Unknown format is returned unchanged
@@ -56,11 +60,17 @@ def test_store_mlbot(store, make_game):
     game = make_game(game_id=1, user_num=old_user_num, mlbot=None)
     store.upsert_from_game_payload(game)
 
-    cur = store.connection.execute("SELECT COUNT(*) FROM users WHERE user_num = ? AND ml_bot = 1", (bot_user_num,))
+    cur = store.connection.execute(
+        "SELECT COUNT(*) FROM users WHERE user_num = ? AND ml_bot = 1", (bot_user_num,)
+    )
     assert cur.fetchone()[0] == 1
 
-    cur = store.connection.execute("SELECT COUNT(*) FROM users WHERE user_num = ? AND ml_bot = 0", (pc_user_num,))
+    cur = store.connection.execute(
+        "SELECT COUNT(*) FROM users WHERE user_num = ? AND ml_bot = 0", (pc_user_num,)
+    )
     assert cur.fetchone()[0] == 1
 
-    cur = store.connection.execute("SELECT COUNT(*) FROM users WHERE user_num = ? AND ml_bot = 0", (old_user_num,))
+    cur = store.connection.execute(
+        "SELECT COUNT(*) FROM users WHERE user_num = ? AND ml_bot = 0", (old_user_num,)
+    )
     assert cur.fetchone()[0] == 1

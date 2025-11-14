@@ -19,9 +19,7 @@ def test_exporter_buffers_and_flushes(tmp_path, make_game):
     exp = ParquetExporter(out, flush_rows=2)
 
     # Five rows in the same partition (season/server/mode/date)
-    rows = [
-        _make_participant(make_game, game_id=1, user_num=100+i) for i in range(5)
-    ]
+    rows = [_make_participant(make_game, game_id=1, user_num=100 + i) for i in range(5)]
     for r in rows:
         exp.write_from_game_payload(r)
     exp.close()
@@ -40,14 +38,23 @@ def test_exporter_buffers_and_flushes(tmp_path, make_game):
     assert total == 5
 
 
-def test_cli_parquet_compact_merges_small_files(monkeypatch, tmp_path, make_game, store):
+def test_cli_parquet_compact_merges_small_files(
+    monkeypatch, tmp_path, make_game, store
+):
     # Prepare a tiny dataset with many small files using the exporter
     src = tmp_path / "src"
     dst = tmp_path / "dst"
     exp = ParquetExporter(src, flush_rows=1)  # one row per file to start
 
     # Create three rows in one partition via ingest manager to exercise path
-    pages = [{"userGames": [make_game(game_id=1, user_num=100), make_game(game_id=2, user_num=100)]}]
+    pages = [
+        {
+            "userGames": [
+                make_game(game_id=1, user_num=100),
+                make_game(game_id=2, user_num=100),
+            ]
+        }
+    ]
     participants = {1: {"userGames": [make_game(game_id=1, user_num=200)]}}
 
     class _FakeClient:
@@ -75,13 +82,20 @@ def test_cli_parquet_compact_merges_small_files(monkeypatch, tmp_path, make_game
 
     # Run compaction CLI
     from er_stats.tools_cli import run as tools_run
-    code = tools_run([
-        "parquet-compact",
-        "--src", str(src / "participants"),
-        "--dst", str(dst / "participants"),
-        "--compression", "zstd",
-        "--max-rows-per-file", "100000",
-    ])
+
+    code = tools_run(
+        [
+            "parquet-compact",
+            "--src",
+            str(src / "participants"),
+            "--dst",
+            str(dst / "participants"),
+            "--compression",
+            "zstd",
+            "--max-rows-per-file",
+            "100000",
+        ]
+    )
     assert code == 0
 
     # After compaction, expect fewer files and same row count

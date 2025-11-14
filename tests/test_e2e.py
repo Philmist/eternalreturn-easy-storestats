@@ -10,11 +10,15 @@ pytest.importorskip("pyarrow")
 
 
 class FakeClient:
-    def __init__(self, pages: list[Dict[str, Any]], participants: Dict[int, Dict[str, Any]]):
+    def __init__(
+        self, pages: list[Dict[str, Any]], participants: Dict[int, Dict[str, Any]]
+    ):
         self.pages = pages
         self.participants = participants
 
-    def fetch_user_games(self, user_num: int, next_token: Optional[str] = None) -> Dict[str, Any]:
+    def fetch_user_games(
+        self, user_num: int, next_token: Optional[str] = None
+    ) -> Dict[str, Any]:
         if next_token is None:
             return self.pages[0]
         return self.pages[1]
@@ -71,7 +75,9 @@ def test_ingestion_manager_writes_sqlite_and_parquet(store, tmp_path, make_game)
 
     # Row counts should match unique rows written (use metadata to avoid schema merge issues)
     matches_rows = sum(pq.ParquetFile(p).metadata.num_rows for p in matches_files)
-    participants_rows = sum(pq.ParquetFile(p).metadata.num_rows for p in participants_files)
+    participants_rows = sum(
+        pq.ParquetFile(p).metadata.num_rows for p in participants_files
+    )
     assert matches_rows == 2
     assert participants_rows == 5
 
@@ -95,7 +101,14 @@ def test_ingestion_manager_writes_sqlite_and_parquet(store, tmp_path, make_game)
 
 def test_schema_has_no_raw_json(store):
     # Ensure fresh DB schema does not include deprecated raw_json columns
-    cols_matches = [r[1] for r in store.connection.execute("PRAGMA table_info(matches)").fetchall()]
-    cols_ums = [r[1] for r in store.connection.execute("PRAGMA table_info(user_match_stats)").fetchall()]
+    cols_matches = [
+        r[1] for r in store.connection.execute("PRAGMA table_info(matches)").fetchall()
+    ]
+    cols_ums = [
+        r[1]
+        for r in store.connection.execute(
+            "PRAGMA table_info(user_match_stats)"
+        ).fetchall()
+    ]
     assert "raw_json" not in cols_matches
     assert "raw_json" not in cols_ums

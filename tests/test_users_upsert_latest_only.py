@@ -16,14 +16,16 @@ def test_upsert_user_updates_only_when_newer(store):
     newer_ts = "2025-02-01T00:00:00.000+0000"
 
     # Seed with older record
-    store.upsert_user({
-        "userNum": user_num,
-        "nickname": "oldnick",
-        "startDtm": older_ts,
-        "mmrAfter": 100,
-        "language": "en",
-        "mlbot": False,
-    })
+    store.upsert_user(
+        {
+            "userNum": user_num,
+            "nickname": "oldnick",
+            "startDtm": older_ts,
+            "mmrAfter": 100,
+            "language": "en",
+            "mlbot": False,
+        }
+    )
 
     r1 = _row_for(store, user_num)
     assert r1 is not None
@@ -34,27 +36,31 @@ def test_upsert_user_updates_only_when_newer(store):
     assert r1[4] == 100  # last_mmr
 
     # Try to apply an older payload again with different values; it must NOT update
-    store.upsert_user({
-        "userNum": user_num,
-        "nickname": "should_not_apply",
-        "startDtm": "2024-12-31T23:59:59.000+0000",
-        "mmrAfter": 999,
-        "language": "jp",
-        "mlbot": True,
-    })
+    store.upsert_user(
+        {
+            "userNum": user_num,
+            "nickname": "should_not_apply",
+            "startDtm": "2024-12-31T23:59:59.000+0000",
+            "mmrAfter": 999,
+            "language": "jp",
+            "mlbot": True,
+        }
+    )
 
     r2 = _row_for(store, user_num)
     assert r2 == r1  # unchanged
 
     # Apply a newer payload; it SHOULD update nickname/last_seen/mmr/lang/ml_bot
-    store.upsert_user({
-        "userNum": user_num,
-        "nickname": "newnick",
-        "startDtm": newer_ts,
-        "mmrAfter": 200,
-        "language": "ko",
-        "mlbot": True,
-    })
+    store.upsert_user(
+        {
+            "userNum": user_num,
+            "nickname": "newnick",
+            "startDtm": newer_ts,
+            "mmrAfter": 200,
+            "language": "ko",
+            "mlbot": True,
+        }
+    )
 
     r3 = _row_for(store, user_num)
     assert r3[0] == user_num
@@ -75,27 +81,30 @@ def test_upsert_user_new_then_older_does_not_downgrade(store):
     older_ts = "2025-02-01T12:00:00.000+0000"
 
     # Insert newer first
-    store.upsert_user({
-        "userNum": user_num,
-        "nickname": "nickA",
-        "startDtm": newer_ts,
-        "mmrAfter": 500,
-        "language": "en",
-        "mlbot": False,
-    })
+    store.upsert_user(
+        {
+            "userNum": user_num,
+            "nickname": "nickA",
+            "startDtm": newer_ts,
+            "mmrAfter": 500,
+            "language": "en",
+            "mlbot": False,
+        }
+    )
 
     r1 = _row_for(store, user_num)
 
     # Then try to "downgrade" with an older snapshot; should be ignored
-    store.upsert_user({
-        "userNum": user_num,
-        "nickname": "nickB",
-        "startDtm": older_ts,
-        "mmrAfter": 50,
-        "language": "jp",
-        "mlbot": True,
-    })
+    store.upsert_user(
+        {
+            "userNum": user_num,
+            "nickname": "nickB",
+            "startDtm": older_ts,
+            "mmrAfter": 50,
+            "language": "jp",
+            "mlbot": True,
+        }
+    )
 
     r2 = _row_for(store, user_num)
     assert r2 == r1  # unchanged
-

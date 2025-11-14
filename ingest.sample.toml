@@ -1,0 +1,25 @@
+## Sample configuration for a single ingest job.
+##
+## Copy this file (for example to `ingest.main.toml`), adjust the values,
+## and point `er-stats ingest --config` at the copied file.
+
+[ingest]
+db_path = "db.sqlite3"
+base_url = "https://open-api.bser.io/"
+
+depth = 1
+max_games_per_user = 1000
+min_interval = 1.0
+max_retries = 3
+only_newer_games = true
+
+# Optional Parquet export destination. Comment out or remove to disable.
+parquet_dir = "data/parquet"
+
+[ingest.seeds]
+users = [123456, 789012]
+nicknames = ["ExamplePlayer1", "ExamplePlayer2"]
+
+[auth]
+api_key_env = "ER_API_KEY"
+

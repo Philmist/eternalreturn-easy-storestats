@@ -9,11 +9,15 @@ pytest.importorskip("pyarrow")
 
 
 class _FakeClient:
-    def __init__(self, pages: list[Dict[str, Any]], participants: Dict[int, Dict[str, Any]]):
+    def __init__(
+        self, pages: list[Dict[str, Any]], participants: Dict[int, Dict[str, Any]]
+    ):
         self.pages = pages
         self.participants = participants
 
-    def fetch_user_games(self, user_num: int, next_token: Optional[str] = None) -> Dict[str, Any]:
+    def fetch_user_games(
+        self, user_num: int, next_token: Optional[str] = None
+    ) -> Dict[str, Any]:
         if next_token is None:
             return self.pages[0]
         return self.pages[1]
@@ -48,20 +52,34 @@ def test_cli_ingest_with_parquet_dir(monkeypatch, store, tmp_path, make_game):
 
     pages, participants = _make_pages(make_game)
 
-    def _fake_ctor(base_url: str, api_key: Optional[str] = None, session=None, timeout: float = 10.0, *, min_interval: float = 1.0, max_retries: int = 3):
+    def _fake_ctor(
+        base_url: str,
+        api_key: Optional[str] = None,
+        session=None,
+        timeout: float = 10.0,
+        *,
+        min_interval: float = 1.0,
+        max_retries: int = 3,
+    ):
         return _FakeClient(pages, participants)
 
     monkeypatch.setattr(cli_mod, "EternalReturnAPIClient", _fake_ctor)
 
     out_dir = tmp_path / "out_parquet"
     args = [
-        "--db", store.path,
+        "--db",
+        store.path,
         "ingest",
-        "--base-url", "https://example.invalid",
-        "--user", "12345",
-        "--depth", "1",
-        "--parquet-dir", str(out_dir),
-        "--min-interval", "0.0",
+        "--base-url",
+        "https://example.invalid",
+        "--user",
+        "12345",
+        "--depth",
+        "1",
+        "--parquet-dir",
+        str(out_dir),
+        "--min-interval",
+        "0.0",
     ]
 
     code = cli_run(args)

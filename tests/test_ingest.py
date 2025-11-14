@@ -4,13 +4,17 @@ from er_stats.ingest import IngestionManager
 
 
 class FakeClient:
-    def __init__(self, pages: list[Dict[str, Any]], participants: Dict[int, Dict[str, Any]]):
+    def __init__(
+        self, pages: list[Dict[str, Any]], participants: Dict[int, Dict[str, Any]]
+    ):
         self.pages = pages
         self.participants = participants
         self.fetch_user_games_calls: list[Optional[str]] = []
         self.fetch_game_result_calls: list[int] = []
 
-    def fetch_user_games(self, user_num: int, next_token: Optional[str] = None) -> Dict[str, Any]:
+    def fetch_user_games(
+        self, user_num: int, next_token: Optional[str] = None
+    ) -> Dict[str, Any]:
         self.fetch_user_games_calls.append(next_token)
         if next_token is None:
             return self.pages[0]
@@ -40,7 +44,9 @@ def test_ingest_user_and_participants(store, make_game):
     }
 
     client = FakeClient(pages, participants)
-    manager = IngestionManager(client, store, max_games_per_user=None, fetch_game_details=True)
+    manager = IngestionManager(
+        client, store, max_games_per_user=None, fetch_game_details=True
+    )
 
     discovered = manager.ingest_user(100)
 
@@ -48,7 +54,9 @@ def test_ingest_user_and_participants(store, make_game):
     assert {200, 201, 300}.issubset(discovered)
 
     # Data persisted for seed and participants
-    count = store.connection.execute("SELECT COUNT(*) FROM user_match_stats").fetchone()[0]
+    count = store.connection.execute(
+        "SELECT COUNT(*) FROM user_match_stats"
+    ).fetchone()[0]
     assert count == 5  # 2 seed matches + 3 participant entries
 
 
@@ -130,4 +138,3 @@ def test_ingest_includes_older_games_when_cutoff_disabled(store, make_game):
     assert client.fetch_user_games_calls == [None, "tok"]
     assert store.has_game(2)
     assert store.has_game(3)
-

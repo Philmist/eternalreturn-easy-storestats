@@ -48,7 +48,9 @@ class EternalReturnAPIClient:
             headers.update(extra)
         return headers
 
-    def fetch_user_games(self, user_num: int, next_token: Optional[str] = None) -> Dict[str, Any]:
+    def fetch_user_games(
+        self, user_num: int, next_token: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Fetch the paginated match list for the given user."""
 
         url = f"{self.base_url}/v1/user/games/{user_num}"
@@ -74,7 +76,9 @@ class EternalReturnAPIClient:
         # Endpoint example:
         #   GET /v1/user/nickname?query=Philmist
         url = f"{self.base_url}/v1/user/nickname?query={requests.utils.quote(nickname)}"
-        return self._get_json_with_rate_limit(url, self._headers({"accept": "application/json"}))
+        return self._get_json_with_rate_limit(
+            url, self._headers({"accept": "application/json"})
+        )
 
     def close(self) -> None:
         """Close the underlying :class:`requests.Session`."""
@@ -109,7 +113,9 @@ class EternalReturnAPIClient:
         # Reserve the slot at request start to avoid bursts across threads
         self._last_request_at = now
 
-    def _get_json_with_rate_limit(self, url: str, headers: Dict[str, str]) -> Dict[str, Any]:
+    def _get_json_with_rate_limit(
+        self, url: str, headers: Dict[str, str]
+    ) -> Dict[str, Any]:
         """Perform a GET with rate limiting and simple 429 retry."""
 
         attempts = 0
@@ -124,12 +130,18 @@ class EternalReturnAPIClient:
                 # Honor Retry-After if present; default to min_interval
                 retry_after = None
                 try:
-                    retry_after_hdr = getattr(response, "headers", {}).get("Retry-After")
+                    retry_after_hdr = getattr(response, "headers", {}).get(
+                        "Retry-After"
+                    )
                     if retry_after_hdr is not None:
                         retry_after = float(retry_after_hdr)
                 except Exception:
                     retry_after = None
-                time.sleep(retry_after if retry_after is not None else max(self.min_interval, 1.0))
+                time.sleep(
+                    retry_after
+                    if retry_after is not None
+                    else max(self.min_interval, 1.0)
+                )
                 if attempts <= self.max_retries:
                     # After wait, try again
                     continue

@@ -116,6 +116,7 @@ source = { editable = "." }
 dependencies = [
     { name = "pyarrow" },
     { name = "requests" },
+    { name = "tomli", marker = "python_full_version < '3.11'" },
 ]
 
 [package.optional-dependencies]
@@ -134,6 +135,7 @@ requires-dist = [
     { name = "pyarrow", specifier = ">=13.0.0" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=9.0" },
     { name = "requests", specifier = ">=2.31.0" },
+    { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2.0.1" },
 ]
 provides-extras = ["test"]
 

@@ -133,6 +133,17 @@ python -m er_stats.cli --db er.sqlite ingest \
   --min-interval 1.0 --max-retries 3
 ```
 
+For recurring jobs with mostly fixed settings, you can use a TOML
+configuration file instead of repeating all options on the command line.
+
+1. Copy `ingest.sample.toml` to a new file (for example `ingest.main.toml`) and edit values as needed.
+2. Keep API keys out of the file and provide them via environment variables as indicated in the `[auth]` section.
+3. Run ingest pointing to that config:
+
+```bash
+python -m er_stats.cli ingest --config ingest.main.toml
+```
+
 Write Parquet datasets during ingest (for DuckDB/analytics):
 
 ```bash

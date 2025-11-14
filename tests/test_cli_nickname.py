@@ -4,7 +4,12 @@ from er_stats.cli import run as cli_run
 
 
 class _FakeClient:
-    def __init__(self, pages: list[Dict[str, Any]], participants: Dict[int, Dict[str, Any]], mapping: Dict[str, int]):
+    def __init__(
+        self,
+        pages: list[Dict[str, Any]],
+        participants: Dict[int, Dict[str, Any]],
+        mapping: Dict[str, int],
+    ):
         self.pages = pages
         self.participants = participants
         self.mapping = mapping
@@ -13,9 +18,15 @@ class _FakeClient:
         user_num = self.mapping.get(nickname)
         if user_num is None:
             raise RuntimeError("user not found")
-        return {"code": 200, "message": "Success", "user": {"userNum": user_num, "nickname": nickname}}
+        return {
+            "code": 200,
+            "message": "Success",
+            "user": {"userNum": user_num, "nickname": nickname},
+        }
 
-    def fetch_user_games(self, user_num: int, next_token: Optional[str] = None) -> Dict[str, Any]:
+    def fetch_user_games(
+        self, user_num: int, next_token: Optional[str] = None
+    ) -> Dict[str, Any]:
         if next_token is None:
             return self.pages[0]
         return self.pages[1]
@@ -51,18 +62,31 @@ def test_cli_ingest_with_nickname(monkeypatch, store, make_game, tmp_path):
     seed_user = 500
     pages, participants = _make_pages(make_game, seed_user)
 
-    def _fake_ctor(base_url: str, api_key: Optional[str] = None, session=None, timeout: float = 10.0, *, min_interval: float = 1.0, max_retries: int = 3):
+    def _fake_ctor(
+        base_url: str,
+        api_key: Optional[str] = None,
+        session=None,
+        timeout: float = 10.0,
+        *,
+        min_interval: float = 1.0,
+        max_retries: int = 3,
+    ):
         return _FakeClient(pages, participants, {"Alice": seed_user})
 
     monkeypatch.setattr(cli_mod, "EternalReturnAPIClient", _fake_ctor)
 
     args = [
-        "--db", store.path,
+        "--db",
+        store.path,
         "ingest",
-        "--base-url", "https://example.invalid",
-        "--nickname", "Alice",
-        "--depth", "1",
-        "--min-interval", "0.0",
+        "--base-url",
+        "https://example.invalid",
+        "--nickname",
+        "Alice",
+        "--depth",
+        "1",
+        "--min-interval",
+        "0.0",
     ]
 
     code = cli_run(args)
@@ -74,4 +98,3 @@ def test_cli_ingest_with_nickname(monkeypatch, store, make_game, tmp_path):
     cur = store.connection.execute("SELECT COUNT(*) FROM user_match_stats")
     # 2 rows from seed user's games + 3 rows from participants
     assert cur.fetchone()[0] == 5
-

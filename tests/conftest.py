@@ -14,7 +14,6 @@ for _p in (_SRC, _ROOT):
         sys.path.insert(0, str(_p))
 
 
-
 @pytest.fixture
 def store(tmp_path):
     db_path = tmp_path / "er_stats.sqlite"

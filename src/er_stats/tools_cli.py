@@ -22,10 +22,23 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         "parquet-compact",
         help="Compact and compress an existing Parquet dataset",
     )
-    compact.add_argument("--src", type=Path, required=True, help="Source Parquet root (hive partitioned)")
-    compact.add_argument("--dst", type=Path, required=True, help="Destination Parquet root (will be created)")
-    compact.add_argument("--compression", default="zstd", help="Parquet compression codec (default: zstd)")
-    compact.add_argument("--max-rows-per-file", type=int, default=250000, help="Max rows per output file")
+    compact.add_argument(
+        "--src", type=Path, required=True, help="Source Parquet root (hive partitioned)"
+    )
+    compact.add_argument(
+        "--dst",
+        type=Path,
+        required=True,
+        help="Destination Parquet root (will be created)",
+    )
+    compact.add_argument(
+        "--compression",
+        default="zstd",
+        help="Parquet compression codec (default: zstd)",
+    )
+    compact.add_argument(
+        "--max-rows-per-file", type=int, default=250000, help="Max rows per output file"
+    )
 
     return parser.parse_args(argv)
 

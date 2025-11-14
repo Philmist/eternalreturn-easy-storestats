@@ -22,12 +22,15 @@ class _Session:
         # First call has no next header, return page 1
         self.calls.append((url, headers, timeout))
         if headers.get("next") is None:
-            return _Resp({"userGames": [
-                {"gameId": 1},
-            ], "next": "tok"})
-        return _Resp({"userGames": [
-            {"gameId": 2}, {"gameId": 3}
-        ]})
+            return _Resp(
+                {
+                    "userGames": [
+                        {"gameId": 1},
+                    ],
+                    "next": "tok",
+                }
+            )
+        return _Resp({"userGames": [{"gameId": 2}, {"gameId": 3}]})
 
     def close(self) -> None:
         return None

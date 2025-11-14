@@ -25,16 +25,25 @@ class _DummyClient:
 
 def test_cli_character_outputs_json(store, tmp_path, make_game, capsys):
     # Pre-populate DB with one record matching the context
-    store.upsert_from_game_payload(make_game(game_id=1, user_num=1, character_num=1, game_rank=2))
+    store.upsert_from_game_payload(
+        make_game(game_id=1, user_num=1, character_num=1, game_rank=2)
+    )
 
-    code = run([
-        "--db", store.path,
-        "character",
-        "--season", "25",
-        "--server", "NA",
-        "--mode", "3",
-        "--team-mode", "1",
-    ])
+    code = run(
+        [
+            "--db",
+            store.path,
+            "character",
+            "--season",
+            "25",
+            "--server",
+            "NA",
+            "--mode",
+            "3",
+            "--team-mode",
+            "1",
+        ]
+    )
     assert code == 0
     out = capsys.readouterr().out
     data = json.loads(out)
@@ -59,15 +68,17 @@ def test_cli_ingest_only_newer_games_enabled_by_default(monkeypatch, store):
     monkeypatch.setattr(cli_mod, "EternalReturnAPIClient", _DummyClient)
     monkeypatch.setattr(cli_mod, "IngestionManager", _RecorderManager)
 
-    code = run([
-        "--db",
-        store.path,
-        "ingest",
-        "--base-url",
-        "https://example.invalid",
-        "--user",
-        "12345",
-    ])
+    code = run(
+        [
+            "--db",
+            store.path,
+            "ingest",
+            "--base-url",
+            "https://example.invalid",
+            "--user",
+            "12345",
+        ]
+    )
 
     assert code == 0
     assert recorded_kwargs["only_newer_games"] is True
@@ -91,18 +102,19 @@ def test_cli_ingest_can_include_older_games(monkeypatch, store):
     monkeypatch.setattr(cli_mod, "EternalReturnAPIClient", _DummyClient)
     monkeypatch.setattr(cli_mod, "IngestionManager", _RecorderManager)
 
-    code = run([
-        "--db",
-        store.path,
-        "ingest",
-        "--base-url",
-        "https://example.invalid",
-        "--user",
-        "777",
-        "--include-older-games",
-    ])
+    code = run(
+        [
+            "--db",
+            store.path,
+            "ingest",
+            "--base-url",
+            "https://example.invalid",
+            "--user",
+            "777",
+            "--include-older-games",
+        ]
+    )
 
     assert code == 0
     assert recorded_kwargs["only_newer_games"] is False
     assert recorded_kwargs["seeds"] == [777]
-
