@@ -1,26 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [ -n "${PYTHON:-}" ]; then
-  python_cmd="$PYTHON"
-elif command -v python3 >/dev/null 2>&1; then
-  python_cmd="python3"
-elif command -v python >/dev/null 2>&1; then
-  python_cmd="python"
-else
-  echo "Unable to locate a Python interpreter. Set the PYTHON environment variable to continue." >&2
+if ! command -v uv >/dev/null 2>&1; then
+  echo "The 'uv' CLI is required to install dependencies and run tests." >&2
   exit 1
 fi
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-if [ -n "${VIRTUAL_ENV:-}" ]; then
-  echo "Using virtual environment: $VIRTUAL_ENV"
-fi
+echo "Syncing project dependencies (including test extras) via uv..."
+uv sync --extra test --frozen
 
-echo "Installing project with test dependencies..."
-"$python_cmd" -m pip install -e ".[test]"
+echo "Installing project in editable mode via uv..."
+uv pip install --editable .
 
-echo "Running pytest..."
-"$python_cmd" -m pytest "$@"
+echo "Running pytest with uv..."
+uv run pytest "$@"
