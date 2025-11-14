@@ -67,6 +67,22 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         help="Max retries on HTTP 429 Too Many Requests",
     )
     ingest_parser.add_argument(
+        "--only-newer-games",
+        dest="only_newer_games",
+        action="store_true",
+        default=True,
+        help=(
+            "Stop paging once a previously ingested match is encountered "
+            "for a user (default behaviour)."
+        ),
+    )
+    ingest_parser.add_argument(
+        "--include-older-games",
+        dest="only_newer_games",
+        action="store_false",
+        help="Continue ingesting all pages even if older matches were already stored.",
+    )
+    ingest_parser.add_argument(
         "--parquet-dir",
         type=Path,
         default=None,
@@ -157,6 +173,7 @@ def run(argv: Optional[Iterable[str]] = None) -> int:
                 client,
                 store,
                 max_games_per_user=args.max_games,
+                only_newer_games=args.only_newer_games,
                 parquet_exporter=parquet_exporter,
                 progress_callback=report,
             )

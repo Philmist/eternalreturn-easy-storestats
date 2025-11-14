@@ -6,7 +6,7 @@ import datetime as dt
 import sqlite3
 import functools
 from contextlib import contextmanager
-from typing import Any, Dict, Iterator, Optional
+from typing import Any, Dict, Iterator, Optional, Set
 
 ISO_FORMAT = "%Y-%m-%dT%H:%M:%S%z"
 
@@ -410,6 +410,20 @@ class SQLiteStore:
         with self.cursor() as cur:
             cur.execute("SELECT 1 FROM matches WHERE game_id=?", (game_id,))
             return cur.fetchone() is not None
+
+    def get_user_last_seen(self, user_num: int) -> Optional[str]:
+        with self.cursor() as cur:
+            cur.execute("SELECT last_seen FROM users WHERE user_num=?", (user_num,))
+            row = cur.fetchone()
+            return row["last_seen"] if row else None
+
+    def get_participants_for_game(self, game_id: int) -> Set[int]:
+        with self.cursor() as cur:
+            cur.execute(
+                "SELECT user_num FROM user_match_stats WHERE game_id=?",
+                (game_id,),
+            )
+            return {row["user_num"] for row in cur.fetchall()}
 
     def transaction(self) -> sqlite3.Connection:
         return self.connection
