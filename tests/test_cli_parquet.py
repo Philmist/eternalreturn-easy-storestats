@@ -76,7 +76,8 @@ def test_cli_ingest_with_parquet_dir(monkeypatch, store, tmp_path, make_game):
     # Parquet datasets were written
     matches_files = list((out_dir / "matches").rglob("*.parquet"))
     participants_files = list((out_dir / "participants").rglob("*.parquet"))
-    assert matches_files and participants_files
+    assert matches_files
+    assert participants_files
     # Ensure partition path excludes matching_team_mode
     dir_names = {p.name for p in participants_files[0].parents}
     assert "season_id=25" in dir_names

@@ -16,10 +16,14 @@
 - Adopt the `src` layout for Python packages and rely on editable installs during development.
 - Treat the contents of the `api-result-examples` directory as reference material only; production code must not import from or otherwise depend on files within this directory.
 - On Windows, use PowerShell (version 7.0 or later) for all non-Python scripting.
+- Always use linter to avoid unnecessary errors before commit.
+    - Invoke `uv run ruff check`.
+- Use formatter before commit if you can.
+    - Invoke `uv run ruff format`.
 
 ## Testing
 - Use `pytest` as the testing framework.
-    - Use `uv run pytest -q` to run tests.
+    - Invoke `uv run pytest -q` to run the tests.
 - Whenever implementing or modifying functionality, ensure there are corresponding tests that cover the changes and that they pass.
 
 ## Design Principles

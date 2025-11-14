@@ -15,7 +15,7 @@ for _p in (_SRC, _ROOT):
 
 
 
-@pytest.fixture()
+@pytest.fixture
 def store(tmp_path):
     db_path = tmp_path / "er_stats.sqlite"
     s = SQLiteStore(str(db_path))

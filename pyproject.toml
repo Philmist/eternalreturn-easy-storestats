@@ -42,3 +42,10 @@ testpaths = [
   "integration",
 ]
 strict = true
+
+[tool.ruff.lint]
+extend-select = [
+  "FBT",
+  "LOG",
+  "PT",
+]

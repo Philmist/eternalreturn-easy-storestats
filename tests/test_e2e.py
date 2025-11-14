@@ -64,7 +64,8 @@ def test_ingestion_manager_writes_sqlite_and_parquet(store, tmp_path, make_game)
     # Parquet files exist under both datasets
     matches_files = list((out_dir / "matches").rglob("*.parquet"))
     participants_files = list((out_dir / "participants").rglob("*.parquet"))
-    assert matches_files and participants_files
+    assert matches_files
+    assert participants_files
 
     import pyarrow.parquet as pq
 

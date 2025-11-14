@@ -39,7 +39,8 @@ def test_cli_character_outputs_json(store, tmp_path, make_game, capsys):
     out = capsys.readouterr().out
     data = json.loads(out)
     assert isinstance(data, list)
-    assert data and "character_num" in data[0]
+    assert data
+    assert "character_num" in data[0]
 
 
 def test_cli_ingest_only_newer_games_enabled_by_default(monkeypatch, store):
