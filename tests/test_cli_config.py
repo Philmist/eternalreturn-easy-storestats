@@ -24,6 +24,9 @@ class _RecorderClient:
             },
         }
 
+    def fetch_character_attributes(self) -> dict:
+        return {"data": []}
+
     def close(self) -> None:
         return None
 
