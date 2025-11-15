@@ -167,6 +167,28 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def refresh_character_catalog(
+    store: SQLiteStore, client: EternalReturnAPIClient
+) -> None:
+    """Fetch the official character list and store it in SQLite."""
+
+    try:
+        payload = client.fetch_character_attributes()
+    except Exception as exc:  # pragma: no cover - logging path
+        ingest_logger.warning("Failed to refresh character catalog: %s", exc)
+        return
+
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, list):
+        ingest_logger.warning(
+            "Character API response did not include a 'data' list; skipping refresh"
+        )
+        return
+
+    count = store.refresh_characters(data)
+    ingest_logger.info("Stored %d character definitions", count)
+
+
 def run(argv: Optional[Iterable[str]] = None) -> int:
     args = parse_args(argv)
     configure_logging(args.command)
@@ -225,6 +247,8 @@ def run(argv: Optional[Iterable[str]] = None) -> int:
                 min_interval=min_interval,
                 max_retries=max_retries,
             )
+
+            refresh_character_catalog(store, client)
 
             def report(message: str) -> None:
                 ingest_logger.info(message)

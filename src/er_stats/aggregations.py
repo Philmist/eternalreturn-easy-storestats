@@ -33,14 +33,16 @@ def character_rankings(
             JOIN matches AS m ON m.game_id = ums.game_id
             {_context_filter_clause()}
         )
-        SELECT character_num,
-               AVG(game_rank) AS average_rank,
-               SUM(CASE WHEN game_rank = 1 THEN 1 ELSE 0 END) AS rank_1,
-               SUM(CASE WHEN game_rank BETWEEN 2 AND 3 THEN 1 ELSE 0 END) AS rank_2_3,
-               SUM(CASE WHEN game_rank BETWEEN 4 AND 6 THEN 1 ELSE 0 END) AS rank_4_6,
+        SELECT f.character_num,
+               c.name AS character_name,
+               AVG(f.game_rank) AS average_rank,
+               SUM(CASE WHEN f.game_rank = 1 THEN 1 ELSE 0 END) AS rank_1,
+               SUM(CASE WHEN f.game_rank BETWEEN 2 AND 3 THEN 1 ELSE 0 END) AS rank_2_3,
+               SUM(CASE WHEN f.game_rank BETWEEN 4 AND 6 THEN 1 ELSE 0 END) AS rank_4_6,
                COUNT(*) AS matches
-        FROM filtered
-        GROUP BY character_num
+        FROM filtered AS f
+        LEFT JOIN characters AS c ON c.character_code = f.character_num
+        GROUP BY f.character_num, c.name
         HAVING matches > 0
         ORDER BY average_rank ASC
     """
@@ -118,14 +120,16 @@ def bot_usage_statistics(
             JOIN matches AS m ON m.game_id = ums.game_id
             {_context_filter_clause()}
         )
-        SELECT user_num,
-               MAX(COALESCE(ml_bot, 0)) AS ml_bot,
-               character_num,
-               AVG(game_rank) AS average_rank,
+        SELECT f.user_num,
+               MAX(COALESCE(f.ml_bot, 0)) AS ml_bot,
+               f.character_num,
+               c.name AS character_name,
+               AVG(f.game_rank) AS average_rank,
                COUNT(*) AS matches
-        FROM filtered
-        WHERE ml_bot = 1
-        GROUP BY user_num, character_num
+        FROM filtered AS f
+        LEFT JOIN characters AS c ON c.character_code = f.character_num
+        WHERE f.ml_bot = 1
+        GROUP BY f.user_num, f.character_num, c.name
         HAVING matches >= :min_matches
         ORDER BY ml_bot DESC, matches DESC
     """
@@ -162,12 +166,14 @@ def mmr_change_statistics(
             JOIN matches AS m ON m.game_id = ums.game_id
             {_context_filter_clause()}
         )
-        SELECT character_num,
-               AVG(mmr_gain) AS avg_mmr_gain,
-               AVG(mmr_loss_entry_cost) AS avg_entry_cost,
+        SELECT f.character_num,
+               c.name AS character_name,
+               AVG(f.mmr_gain) AS avg_mmr_gain,
+               AVG(f.mmr_loss_entry_cost) AS avg_entry_cost,
                COUNT(*) AS matches
-        FROM filtered
-        GROUP BY character_num
+        FROM filtered AS f
+        LEFT JOIN characters AS c ON c.character_code = f.character_num
+        GROUP BY f.character_num, c.name
         HAVING matches > 0
         ORDER BY avg_mmr_gain DESC
     """

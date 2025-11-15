@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import datetime as dt
-import sqlite3
 import functools
+import json
+import sqlite3
 from contextlib import contextmanager
-from typing import Any, Dict, Iterator, Optional, Set
+from typing import Any, Dict, Iterable, Iterator, Optional, Set
 
 ISO_FORMAT = "%Y-%m-%dT%H:%M:%S%z"
 
@@ -163,6 +164,12 @@ class SQLiteStore:
                     PRIMARY KEY (game_id, user_num, sequence),
                     FOREIGN KEY (game_id, user_num) REFERENCES user_match_stats(game_id, user_num)
                         ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS characters (
+                    character_code INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    payload TEXT
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_matches_context
@@ -413,6 +420,38 @@ class SQLiteStore:
         self.replace_mastery_levels(game)
         self.replace_skill_levels(game)
         self.replace_skill_orders(game)
+
+    def refresh_characters(self, characters: Iterable[Dict[str, Any]]) -> int:
+        """Replace the character catalog with the provided API payload."""
+
+        rows = []
+        for entry in characters:
+            code = entry.get("characterCode")
+            name = entry.get("character")
+            if not isinstance(code, int) or not isinstance(name, str):
+                continue
+            rows.append(
+                {
+                    "character_code": code,
+                    "name": name,
+                    "payload": json.dumps(
+                        entry, ensure_ascii=False, separators=(",", ":")
+                    ),
+                }
+            )
+
+        with self.cursor() as cur:
+            cur.execute("DELETE FROM characters")
+            if rows:
+                cur.executemany(
+                    """
+                    INSERT INTO characters (character_code, name, payload)
+                    VALUES (:character_code, :name, :payload)
+                    """,
+                    rows,
+                )
+        self.connection.commit()
+        return len(rows)
 
     def has_game(self, game_id: int) -> bool:
         with self.cursor() as cur:

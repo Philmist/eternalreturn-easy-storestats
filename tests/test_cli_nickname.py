@@ -37,6 +37,9 @@ class _FakeClient:
     def close(self) -> None:
         return None
 
+    def fetch_character_attributes(self) -> Dict[str, Any]:
+        return {"data": []}
+
 
 def _make_pages(make_game, seed_user: int):
     g1 = make_game(game_id=1, user_num=seed_user)

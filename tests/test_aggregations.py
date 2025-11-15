@@ -20,10 +20,20 @@ def test_aggregations_basic(store, make_game):
         make_game(game_id=3, user_num=12, character_num=2, game_rank=1)
     )
 
+    store.refresh_characters(
+        [
+            {"characterCode": 1, "character": "Jackie"},
+            {"characterCode": 2, "character": "Aya"},
+        ]
+    )
+
     chars = character_rankings(store, **ctx)
     # Should have at least characters 1 and 2
     char_nums = {row["character_num"] for row in chars}
     assert {1, 2}.issubset(char_nums)
+    assert {row["character_name"] for row in chars if row["character_num"] == 1} == {
+        "Jackie"
+    }
 
     equips = equipment_rankings(store, min_samples=1, **ctx)
     # Items from make_game are present
@@ -31,10 +41,10 @@ def test_aggregations_basic(store, make_game):
 
     bots = bot_usage_statistics(store, min_matches=1, **ctx)
     # ml_bot defaults to 0 unless flagged
-    assert all("ml_bot" in row for row in bots)
+    assert all("ml_bot" in row and "character_name" in row for row in bots)
 
     mmr = mmr_change_statistics(store, **ctx)
-    assert all("avg_mmr_gain" in row for row in mmr)
+    assert all("avg_mmr_gain" in row and "character_name" in row for row in mmr)
 
     # Flag a user as mlbot and ensure it propagates
     store.upsert_from_game_payload(
@@ -42,3 +52,6 @@ def test_aggregations_basic(store, make_game):
     )
     bots2 = bot_usage_statistics(store, min_matches=1, **ctx)
     assert any(row["ml_bot"] == 1 for row in bots2)
+    assert any(
+        row["character_num"] == 2 and row["character_name"] == "Aya" for row in bots2
+    )

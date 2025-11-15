@@ -74,3 +74,29 @@ def test_store_mlbot(store, make_game):
         "SELECT COUNT(*) FROM users WHERE user_num = ? AND ml_bot = 0", (old_user_num,)
     )
     assert cur.fetchone()[0] == 1
+
+
+def test_refresh_characters(store):
+    payload = [
+        {"characterCode": 1, "character": "Jackie", "rarity": "normal"},
+        {"characterCode": 2, "character": "Aya"},
+        {"characterCode": "bad", "character": 123},
+    ]
+
+    inserted = store.refresh_characters(payload)
+    assert inserted == 2
+
+    rows = store.connection.execute(
+        "SELECT character_code, name FROM characters ORDER BY character_code"
+    ).fetchall()
+    assert [tuple(row) for row in rows] == [(1, "Jackie"), (2, "Aya")]
+
+    store.refresh_characters(
+        [
+            {"characterCode": 3, "character": "Hyunwoo"},
+        ]
+    )
+    row = store.connection.execute(
+        "SELECT character_code, name FROM characters"
+    ).fetchone()
+    assert tuple(row) == (3, "Hyunwoo")
