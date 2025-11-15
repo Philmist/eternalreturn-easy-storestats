@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import datetime as dt
 import functools
-import json
 import sqlite3
 from contextlib import contextmanager
 from typing import Any, Dict, Iterable, Iterator, Optional, Set
@@ -168,8 +167,7 @@ class SQLiteStore:
 
                 CREATE TABLE IF NOT EXISTS characters (
                     character_code INTEGER PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    payload TEXT
+                    name TEXT NOT NULL
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_matches_context
@@ -434,9 +432,6 @@ class SQLiteStore:
                 {
                     "character_code": code,
                     "name": name,
-                    "payload": json.dumps(
-                        entry, ensure_ascii=False, separators=(",", ":")
-                    ),
                 }
             )
 
@@ -445,8 +440,9 @@ class SQLiteStore:
             if rows:
                 cur.executemany(
                     """
-                    INSERT INTO characters (character_code, name, payload)
-                    VALUES (:character_code, :name, :payload)
+                    INSERT INTO characters (character_code, name)
+                    VALUES (:character_code, :name)
+                    ON CONFLICT DO NOTHING
                     """,
                     rows,
                 )

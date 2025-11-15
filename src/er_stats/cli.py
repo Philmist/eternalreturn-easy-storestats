@@ -23,18 +23,27 @@ from .ingest import IngestionManager
 
 
 LOGGER_NAME = "er_stats"
-LOG_FORMAT = "%(message)s"
+LOG_FORMAT_DEFAULT = "%(message)s"
+LOG_FORMAT_INGEST = "%(asctime)s: %(message)s"
 
 logger = logging.getLogger(LOGGER_NAME)
+logger.setLevel(logging.INFO)
 ingest_logger = logging.getLogger(f"{LOGGER_NAME}.ingest")
+ingest_logger.setLevel(logging.DEBUG)
 
+default_log_formatter = logging.Formatter(LOG_FORMAT_DEFAULT)
+ingest_log_formatter = logging.Formatter(LOG_FORMAT_INGEST)
 
-def configure_logging(command: str) -> None:
-    if command == "ingest":
-        level = logging.INFO
-    else:
-        level = logging.ERROR
-    logging.basicConfig(level=level, format=LOG_FORMAT)
+default_log_handler = logging.StreamHandler()
+default_log_handler.setLevel(logging.WARNING)
+ingest_log_handler = logging.StreamHandler()
+ingest_log_handler.setLevel(logging.INFO)
+
+default_log_handler.setFormatter(default_log_formatter)
+ingest_log_handler.setFormatter(ingest_log_formatter)
+
+logger.addHandler(default_log_handler)
+ingest_logger.addHandler(ingest_log_handler)
 
 
 def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
@@ -191,7 +200,6 @@ def refresh_character_catalog(
 
 def run(argv: Optional[Iterable[str]] = None) -> int:
     args = parse_args(argv)
-    configure_logging(args.command)
 
     db_path: Optional[Path] = None
     ingest_config = None
@@ -199,8 +207,9 @@ def run(argv: Optional[Iterable[str]] = None) -> int:
         if args.config is not None:
             try:
                 ingest_config = load_ingest_config(args.config)
+                logger.info("Load config from '%s'", args.config)
             except ConfigError as exc:
-                ingest_logger.error("%s", exc)
+                logger.error("%s", exc)
                 return 2
         if args.db is not None:
             db_path = args.db
@@ -210,7 +219,7 @@ def run(argv: Optional[Iterable[str]] = None) -> int:
             if isinstance(db_value, str):
                 db_path = Path(db_value)
         if db_path is None:
-            ingest_logger.error(
+            logger.error(
                 "Database path must be provided via --db or ingest.db_path in the config file."
             )
             return 2

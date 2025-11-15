@@ -18,6 +18,7 @@ except Exception:  # pragma: no cover - optional dependency
 
 
 logger = logging.getLogger(__name__)
+logger.addHandler(logging.NullHandler())
 
 
 class IngestionManager:
@@ -118,6 +119,7 @@ class IngestionManager:
         queue = deque((seed, 0) for seed in seeds)
         seen_users: Set[int] = set()
         while queue:
+            self._report(f"Ingest queue left: {len(queue)} users")
             user_num, current_depth = queue.popleft()
             if user_num in seen_users:
                 continue
