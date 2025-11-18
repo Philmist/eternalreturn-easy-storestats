@@ -1,6 +1,8 @@
 import json
 from typing import Any, Dict, Optional
 
+import pytest
+
 from er_stats.cli import run
 
 
@@ -104,6 +106,396 @@ def test_cli_character_outputs_json(store, tmp_path, make_game, capsys):
     assert isinstance(data, list)
     assert data
     assert data[0]["character_name"] == "Jackie"
+
+
+def test_cli_character_aggregations_match_expected(store, make_game, capsys):
+    # Reuse the three-match, two-team, team-of-three scenario with team_mode=3.
+    def add_player(
+        game_id: int,
+        user_num: int,
+        character_num: int,
+        game_rank: int,
+        team_number: int,
+    ) -> None:
+        game = make_game(
+            game_id=game_id,
+            user_num=user_num,
+            character_num=character_num,
+            game_rank=game_rank,
+            matching_team_mode=3,
+        )
+        game["teamNumber"] = team_number
+        store.upsert_from_game_payload(game)
+
+    # Game 1: team 1 rank 1, team 2 rank 2
+    add_player(1, 101, 1, 1, 1)
+    add_player(1, 102, 2, 1, 1)
+    add_player(1, 103, 9, 1, 1)
+    add_player(1, 104, 3, 2, 2)
+    add_player(1, 105, 4, 2, 2)
+    add_player(1, 106, 5, 2, 2)
+
+    # Game 2: team 1 rank 1, team 2 rank 2
+    add_player(2, 201, 1, 1, 1)
+    add_player(2, 202, 2, 1, 1)
+    add_player(2, 203, 9, 1, 1)
+    add_player(2, 204, 3, 2, 2)
+    add_player(2, 205, 4, 2, 2)
+    add_player(2, 206, 5, 2, 2)
+
+    # Game 3: team 1 rank 2, team 2 rank 1
+    add_player(3, 301, 1, 2, 1)
+    add_player(3, 302, 2, 2, 1)
+    add_player(3, 303, 9, 2, 1)
+    add_player(3, 304, 3, 1, 2)
+    add_player(3, 305, 4, 1, 2)
+    add_player(3, 306, 5, 1, 2)
+
+    store.refresh_characters(
+        [
+            {"characterCode": 1, "character": "Jackie"},
+            {"characterCode": 2, "character": "Aya"},
+            {"characterCode": 3, "character": "Hyunwoo"},
+            {"characterCode": 4, "character": "Fiora"},
+            {"characterCode": 5, "character": "Zahir"},
+            {"characterCode": 9, "character": "Nadine"},
+        ]
+    )
+
+    code = run(
+        [
+            "--db",
+            store.path,
+            "character",
+            "--season",
+            "25",
+            "--server",
+            "NA",
+            "--mode",
+            "3",
+            "--team-mode",
+            "3",
+        ]
+    )
+    assert code == 0
+    out = capsys.readouterr().out
+    rows = json.loads(out)
+
+    by_char = {row["character_num"]: row for row in rows}
+
+    jackie = by_char[1]
+    assert jackie["character_name"] == "Jackie"
+    assert jackie["matches"] == 3
+    assert jackie["rank_1"] == 2
+    assert jackie["rank_2_3"] == 1
+    assert jackie["rank_4_6"] == 0
+    assert jackie["average_rank"] == pytest.approx(4 / 3)
+
+    hyunwoo = by_char[3]
+    assert hyunwoo["character_name"] == "Hyunwoo"
+    assert hyunwoo["matches"] == 3
+    assert hyunwoo["rank_1"] == 1
+    assert hyunwoo["rank_2_3"] == 2
+    assert hyunwoo["rank_4_6"] == 0
+    assert hyunwoo["average_rank"] == pytest.approx(5 / 3)
+
+
+def test_cli_equipment_aggregations_match_expected(store, make_game, capsys):
+    # Two matches; item 101101 is used twice, 101102 once.
+    game1 = make_game(
+        game_id=1,
+        user_num=1,
+        character_num=1,
+        game_rank=1,
+        matching_team_mode=3,
+    )
+    game1["teamNumber"] = 1
+    store.upsert_from_game_payload(game1)
+
+    game2 = make_game(
+        game_id=2,
+        user_num=2,
+        character_num=2,
+        game_rank=3,
+        matching_team_mode=3,
+    )
+    # Only equip item 101101 in game2 so it has two uses, 101102 has one.
+    game2["equipment"] = {"0": 101101}
+    game2["equipmentGrade"] = {"0": 2}
+    game2["teamNumber"] = 1
+    store.upsert_from_game_payload(game2)
+
+    store.refresh_items(
+        [
+            {
+                "code": 101101,
+                "name": "Basic Sword",
+                "modeType": 0,
+                "itemType": "Weapon",
+                "itemGrade": "Common",
+                "isCompletedItem": True,
+            },
+            {
+                "code": 101102,
+                "name": "Basic Armor",
+                "modeType": 0,
+                "itemType": "Armor",
+                "itemGrade": "Common",
+                "isCompletedItem": False,
+            },
+        ]
+    )
+
+    # With min-samples=1 both items should appear.
+    code = run(
+        [
+            "--db",
+            store.path,
+            "equipment",
+            "--season",
+            "25",
+            "--server",
+            "NA",
+            "--mode",
+            "3",
+            "--team-mode",
+            "3",
+            "--min-samples",
+            "1",
+        ]
+    )
+    assert code == 0
+    out = capsys.readouterr().out
+    rows = json.loads(out)
+    by_item = {row["item_id"]: row for row in rows}
+
+    sword = by_item[101101]
+    assert sword["item_name"] == "Basic Sword"
+    assert sword["usage_count"] == 2
+    assert sword["average_rank"] == pytest.approx(2.0)
+
+    armor = by_item[101102]
+    assert armor["item_name"] == "Basic Armor"
+    assert armor["usage_count"] == 1
+    assert armor["average_rank"] == pytest.approx(1.0)
+
+    # With min-samples=2 only the sword should remain.
+    code = run(
+        [
+            "--db",
+            store.path,
+            "equipment",
+            "--season",
+            "25",
+            "--server",
+            "NA",
+            "--mode",
+            "3",
+            "--team-mode",
+            "3",
+            "--min-samples",
+            "2",
+        ]
+    )
+    assert code == 0
+    out = capsys.readouterr().out
+    rows = json.loads(out)
+    ids = {row["item_id"] for row in rows}
+    assert ids == {101101}
+
+
+def test_cli_bot_aggregations_match_expected(store, make_game, capsys):
+    # BotA (user 1001, Jackie) plays three matches with ranks [1, 1, 3].
+    # BotB (user 1004, Fiora) plays two matches with ranks [2, 1].
+    # BotC (user 1007, LiDailin) plays one match with rank [1].
+    # A fourth match with a different season_id should be ignored.
+
+    def add_player(
+        game_id: int,
+        user_num: int,
+        character_num: int,
+        game_rank: int,
+        team_number: int,
+        *,
+        mlbot: bool | None = None,
+        season_id: int = 25,
+    ) -> None:
+        game = make_game(
+            game_id=game_id,
+            user_num=user_num,
+            character_num=character_num,
+            game_rank=game_rank,
+            matching_team_mode=3,
+            season_id=season_id,
+            mlbot=mlbot,
+        )
+        game["teamNumber"] = team_number
+        store.upsert_from_game_payload(game)
+
+    # Game 1 (season 25)
+    add_player(1, 1001, 1, 1, 1, mlbot=True)
+    add_player(1, 1002, 2, 1, 1)
+    add_player(1, 1003, 3, 1, 1)
+    add_player(1, 1004, 4, 2, 2, mlbot=True)
+    add_player(1, 1005, 5, 2, 2)
+    add_player(1, 1006, 6, 2, 2)
+
+    # Game 2 (season 25)
+    add_player(2, 2001, 2, 2, 1)
+    add_player(2, 2002, 3, 2, 1)
+    add_player(2, 2003, 6, 2, 1)
+    add_player(2, 1001, 1, 1, 2, mlbot=True)
+    add_player(2, 1004, 4, 1, 2, mlbot=True)
+    add_player(2, 2006, 5, 1, 2)
+
+    # Game 3 (season 25)
+    add_player(3, 1001, 1, 3, 1, mlbot=True)
+    add_player(3, 3002, 2, 3, 1)
+    add_player(3, 3003, 3, 3, 1)
+    add_player(3, 1007, 7, 1, 2, mlbot=True)
+    add_player(3, 3005, 5, 1, 2)
+    add_player(3, 3006, 6, 1, 2)
+
+    # Game 4: different season, should be ignored.
+    add_player(4, 1001, 1, 1, 1, mlbot=True, season_id=26)
+
+    store.refresh_characters(
+        [
+            {"characterCode": 1, "character": "Jackie"},
+            {"characterCode": 4, "character": "Fiora"},
+            {"characterCode": 7, "character": "LiDailin"},
+        ]
+    )
+
+    # With min-matches=2, BotA and BotB should appear, BotC should not.
+    code = run(
+        [
+            "--db",
+            store.path,
+            "bot",
+            "--season",
+            "25",
+            "--server",
+            "NA",
+            "--mode",
+            "3",
+            "--team-mode",
+            "3",
+            "--min-matches",
+            "2",
+        ]
+    )
+    assert code == 0
+    out = capsys.readouterr().out
+    rows = json.loads(out)
+    keys = {(row["user_num"], row["character_num"]) for row in rows}
+    assert keys == {(1001, 1), (1004, 4)}
+
+    bot_a = next(row for row in rows if row["user_num"] == 1001)
+    assert bot_a["ml_bot"] == 1
+    assert bot_a["character_name"] == "Jackie"
+    assert bot_a["matches"] == 3
+    assert bot_a["average_rank"] == pytest.approx(5 / 3)
+
+    bot_b = next(row for row in rows if row["user_num"] == 1004)
+    assert bot_b["ml_bot"] == 1
+    assert bot_b["character_name"] == "Fiora"
+    assert bot_b["matches"] == 2
+    assert bot_b["average_rank"] == pytest.approx(1.5)
+
+    # With min-matches=3 only BotA should remain.
+    code = run(
+        [
+            "--db",
+            store.path,
+            "bot",
+            "--season",
+            "25",
+            "--server",
+            "NA",
+            "--mode",
+            "3",
+            "--team-mode",
+            "3",
+            "--min-matches",
+            "3",
+        ]
+    )
+    assert code == 0
+    out = capsys.readouterr().out
+    rows = json.loads(out)
+    keys = {(row["user_num"], row["character_num"]) for row in rows}
+    assert keys == {(1001, 1)}
+    only_bot = rows[0]
+    assert only_bot["matches"] == 3
+    assert only_bot["average_rank"] == pytest.approx(5 / 3)
+
+
+def test_cli_mmr_aggregations_match_expected(store, make_game, capsys):
+    # Single character with three matches and varying MMR gain.
+    store.upsert_from_game_payload(
+        make_game(
+            game_id=1,
+            user_num=1,
+            character_num=1,
+            game_rank=2,
+            matching_team_mode=3,
+            mmr_gain=10,
+        )
+    )
+    store.upsert_from_game_payload(
+        make_game(
+            game_id=2,
+            user_num=2,
+            character_num=1,
+            game_rank=1,
+            matching_team_mode=3,
+            mmr_gain=20,
+        )
+    )
+    store.upsert_from_game_payload(
+        make_game(
+            game_id=3,
+            user_num=3,
+            character_num=1,
+            game_rank=3,
+            matching_team_mode=3,
+            mmr_gain=-5,
+        )
+    )
+
+    store.refresh_characters(
+        [
+            {"characterCode": 1, "character": "Jackie"},
+        ]
+    )
+
+    code = run(
+        [
+            "--db",
+            store.path,
+            "mmr",
+            "--season",
+            "25",
+            "--server",
+            "NA",
+            "--mode",
+            "3",
+            "--team-mode",
+            "3",
+        ]
+    )
+    assert code == 0
+    out = capsys.readouterr().out
+    rows = json.loads(out)
+    assert rows
+
+    jackie = next(row for row in rows if row["character_num"] == 1)
+    assert jackie["character_name"] == "Jackie"
+    assert jackie["matches"] == 3
+    assert jackie["avg_mmr_gain"] == pytest.approx((10 + 20 - 5) / 3)
+    # Default mmrLossEntryCost in the payload is 5 for all matches.
+    assert jackie["avg_entry_cost"] == pytest.approx(5.0)
 
 
 def test_cli_ingest_only_newer_games_enabled_by_default(monkeypatch, store):
