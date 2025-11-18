@@ -61,9 +61,9 @@ def test_aggregations_basic(store, make_game):
 
 def test_bot_usage_statistics_min_matches_and_context(store, make_game):
     ctx = dict(
-        season_id=25,
-        server_name="NA",
-        matching_mode=3,
+        season_id=0,
+        server_name="Asia3",
+        matching_mode=2,
         matching_team_mode=3,
     )
 
@@ -75,14 +75,16 @@ def test_bot_usage_statistics_min_matches_and_context(store, make_game):
         team_number: int,
         *,
         mlbot: bool | None = None,
-        season_id: int = 25,
+        season_id: int = 0,
     ) -> None:
         game = make_game(
             game_id=game_id,
             user_num=user_num,
             character_num=character_num,
             game_rank=game_rank,
+            matching_mode=2,
             matching_team_mode=3,
+            server_name="Asia3",
             season_id=season_id,
             mlbot=mlbot,
         )
