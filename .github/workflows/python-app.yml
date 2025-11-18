@@ -30,10 +30,7 @@ jobs:
     - name: Sync dependencies
       run: |
         uv sync
-    - name: Run formatter with ruff
-      run: |
-        uv run --frozen ruff format
-    - name: Run static
+    - name: Run linter
       run: |
         uv run --frozen ruff check
     - name: Run pytest
