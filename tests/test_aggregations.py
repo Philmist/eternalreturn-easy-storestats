@@ -36,7 +36,7 @@ def test_aggregations_basic(store, make_game):
     }
 
     equips = equipment_rankings(store, min_samples=1, **ctx)
-    # Items from make_game are present
+    # Items from make_game are present and enriched with item metadata when available
     assert all("average_rank" in row and "usage_count" in row for row in equips)
 
     bots = bot_usage_statistics(store, min_matches=1, **ctx)

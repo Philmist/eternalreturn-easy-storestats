@@ -78,12 +78,18 @@ def equipment_rankings(
             {_context_filter_clause()}
         )
         SELECT e.item_id,
+               i.name AS item_name,
+               i.item_type,
+               i.item_grade,
+               i.is_completed_item,
                AVG(f.game_rank) AS average_rank,
                COUNT(*) AS usage_count,
                AVG(e.grade) AS average_grade
         FROM filtered AS f
         JOIN equipment AS e
           ON e.game_id = f.game_id AND e.user_num = f.user_num
+        LEFT JOIN items AS i
+          ON i.item_code = e.item_id
         GROUP BY e.item_id
         HAVING usage_count >= :min_samples
         ORDER BY average_rank ASC

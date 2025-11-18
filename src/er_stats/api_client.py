@@ -88,6 +88,22 @@ class EternalReturnAPIClient:
             url, self._headers({"accept": "application/json"})
         )
 
+    def fetch_item_armor(self) -> Dict[str, Any]:
+        """Fetch the official armor item catalog."""
+
+        url = f"{self.base_url}/v2/data/ItemArmor"
+        return self._get_json_with_rate_limit(
+            url, self._headers({"accept": "application/json"})
+        )
+
+    def fetch_item_weapon(self) -> Dict[str, Any]:
+        """Fetch the official weapon item catalog."""
+
+        url = f"{self.base_url}/v2/data/ItemWeapon"
+        return self._get_json_with_rate_limit(
+            url, self._headers({"accept": "application/json"})
+        )
+
     def close(self) -> None:
         """Close the underlying :class:`requests.Session`."""
 

@@ -100,3 +100,65 @@ def test_refresh_characters(store):
         "SELECT character_code, name FROM characters"
     ).fetchone()
     assert tuple(row) == (3, "Hyunwoo")
+
+
+def test_refresh_items(store, tmp_path):
+    payload = [
+        {
+            "code": 101101,
+            "name": "Basic Sword",
+            "modeType": 0,
+            "itemType": "Weapon",
+            "itemGrade": "Common",
+            "isCompletedItem": False,
+        },
+        {
+            "code": 201101,
+            "name": "Basic Helmet",
+            "modeType": 0,
+            "itemType": "Armor",
+            "itemGrade": "Common",
+            "isCompletedItem": True,
+        },
+        {
+            "code": "bad",
+            "name": 123,
+        },
+    ]
+
+    inserted = store.refresh_items(payload)
+    assert inserted == 2
+
+    rows = store.connection.execute(
+        """
+        SELECT item_code,
+               name,
+               mode_type,
+               item_type,
+               item_grade,
+               is_completed_item
+        FROM items
+        ORDER BY item_code
+        """
+    ).fetchall()
+    assert [tuple(row) for row in rows] == [
+        (101101, "Basic Sword", 0, "Weapon", "Common", 0),
+        (201101, "Basic Helmet", 0, "Armor", "Common", 1),
+    ]
+
+    store.refresh_items(
+        [
+            {
+                "code": 101102,
+                "name": "Upgraded Sword",
+                "modeType": 1,
+                "itemType": "Weapon",
+                "itemGrade": "Uncommon",
+                "isCompletedItem": True,
+            }
+        ]
+    )
+    row = store.connection.execute(
+        "SELECT item_code, name, mode_type, item_type, item_grade, is_completed_item FROM items"
+    ).fetchone()
+    assert tuple(row) == (101102, "Upgraded Sword", 1, "Weapon", "Uncommon", 1)
