@@ -22,10 +22,36 @@ class _DummyClient:
         self.min_interval = min_interval
         self.max_retries = max_retries
         self.fetch_character_attributes_calls = 0
+        self.fetch_item_armor_calls = 0
+        self.fetch_item_weapon_calls = 0
         self._characters_payload: Dict[str, Any] = {
             "data": [
                 {"characterCode": 1, "character": "Jackie"},
                 {"characterCode": 2, "character": "Aya"},
+            ]
+        }
+        self._item_armor_payload: Dict[str, Any] = {
+            "data": [
+                {
+                    "code": 201101,
+                    "name": "Basic Helmet",
+                    "modeType": 0,
+                    "itemType": "Armor",
+                    "itemGrade": "Common",
+                    "isCompletedItem": False,
+                }
+            ]
+        }
+        self._item_weapon_payload: Dict[str, Any] = {
+            "data": [
+                {
+                    "code": 101101,
+                    "name": "Basic Sword",
+                    "modeType": 0,
+                    "itemType": "Weapon",
+                    "itemGrade": "Common",
+                    "isCompletedItem": True,
+                }
             ]
         }
         _DummyClient.last_instance = self
@@ -36,6 +62,14 @@ class _DummyClient:
     def fetch_character_attributes(self) -> Dict[str, Any]:
         self.fetch_character_attributes_calls += 1
         return self._characters_payload
+
+    def fetch_item_armor(self) -> Dict[str, Any]:
+        self.fetch_item_armor_calls += 1
+        return self._item_armor_payload
+
+    def fetch_item_weapon(self) -> Dict[str, Any]:
+        self.fetch_item_weapon_calls += 1
+        return self._item_weapon_payload
 
 
 def test_cli_character_outputs_json(store, tmp_path, make_game, capsys):
@@ -107,8 +141,12 @@ def test_cli_ingest_only_newer_games_enabled_by_default(monkeypatch, store):
     client = _DummyClient.last_instance
     assert client is not None
     assert client.fetch_character_attributes_calls == 1
+    assert client.fetch_item_armor_calls == 1
+    assert client.fetch_item_weapon_calls == 1
     count = store.connection.execute("SELECT COUNT(*) FROM characters").fetchone()[0]
     assert count == 2
+    item_count = store.connection.execute("SELECT COUNT(*) FROM items").fetchone()[0]
+    assert item_count == 2
 
 
 def test_cli_ingest_can_include_older_games(monkeypatch, store):
@@ -146,3 +184,109 @@ def test_cli_ingest_can_include_older_games(monkeypatch, store):
     client = _DummyClient.last_instance
     assert client is not None
     assert client.fetch_character_attributes_calls == 1
+
+
+def test_cli_ingest_require_metadata_refresh_success(monkeypatch, store):
+    from er_stats import cli as cli_mod
+
+    recorded_kwargs: dict = {}
+
+    class _RecorderManager:
+        def __init__(self, client, db_store, **kwargs):
+            recorded_kwargs.update(kwargs)
+
+        def ingest_from_seeds(self, seeds, depth=1):  # pragma: no cover - trivial
+            recorded_kwargs["seeds"] = list(seeds)
+            recorded_kwargs["depth"] = depth
+
+    monkeypatch.setattr(cli_mod, "EternalReturnAPIClient", _DummyClient)
+    monkeypatch.setattr(cli_mod, "IngestionManager", _RecorderManager)
+
+    code = run(
+        [
+            "--db",
+            store.path,
+            "ingest",
+            "--base-url",
+            "https://example.invalid",
+            "--user",
+            "12345",
+            "--require-metadata-refresh",
+        ]
+    )
+
+    assert code == 0
+
+
+def test_cli_ingest_require_metadata_refresh_fails_on_error(monkeypatch, store):
+    from er_stats import cli as cli_mod
+
+    recorded_kwargs: dict = {}
+
+    class _RecorderManager:
+        def __init__(self, client, db_store, **kwargs):
+            recorded_kwargs.update(kwargs)
+
+        def ingest_from_seeds(self, seeds, depth=1):  # pragma: no cover - trivial
+            recorded_kwargs["seeds"] = list(seeds)
+            recorded_kwargs["depth"] = depth
+
+    class _FailingClient(_DummyClient):
+        def fetch_item_weapon(self) -> Dict[str, Any]:
+            raise RuntimeError("simulated failure")
+
+    monkeypatch.setattr(cli_mod, "EternalReturnAPIClient", _FailingClient)
+    monkeypatch.setattr(cli_mod, "IngestionManager", _RecorderManager)
+
+    code = run(
+        [
+            "--db",
+            store.path,
+            "ingest",
+            "--base-url",
+            "https://example.invalid",
+            "--user",
+            "12345",
+            "--require-metadata-refresh",
+        ]
+    )
+
+    assert code == 2
+
+
+def test_cli_ingest_require_metadata_refresh_fails_on_character_error(
+    monkeypatch, store
+) -> None:
+    from er_stats import cli as cli_mod
+
+    recorded_kwargs: dict = {}
+
+    class _RecorderManager:
+        def __init__(self, client, db_store, **kwargs):
+            recorded_kwargs.update(kwargs)
+
+        def ingest_from_seeds(self, seeds, depth=1):  # pragma: no cover - trivial
+            recorded_kwargs["seeds"] = list(seeds)
+            recorded_kwargs["depth"] = depth
+
+    class _FailingCharacterClient(_DummyClient):
+        def fetch_character_attributes(self) -> Dict[str, Any]:
+            raise RuntimeError("simulated character failure")
+
+    monkeypatch.setattr(cli_mod, "EternalReturnAPIClient", _FailingCharacterClient)
+    monkeypatch.setattr(cli_mod, "IngestionManager", _RecorderManager)
+
+    code = run(
+        [
+            "--db",
+            store.path,
+            "ingest",
+            "--base-url",
+            "https://example.invalid",
+            "--user",
+            "12345",
+            "--require-metadata-refresh",
+        ]
+    )
+
+    assert code == 2

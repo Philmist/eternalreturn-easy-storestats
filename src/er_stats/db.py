@@ -170,6 +170,15 @@ class SQLiteStore:
                     name TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS items (
+                    item_code INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    mode_type INTEGER,
+                    item_type TEXT,
+                    item_grade TEXT,
+                    is_completed_item INTEGER
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_matches_context
                     ON matches (season_id, server_name, matching_mode, matching_team_mode);
 
@@ -442,6 +451,68 @@ class SQLiteStore:
                     """
                     INSERT INTO characters (character_code, name)
                     VALUES (:character_code, :name)
+                    ON CONFLICT DO NOTHING
+                    """,
+                    rows,
+                )
+        self.connection.commit()
+        return len(rows)
+
+    def refresh_items(self, items: Iterable[Dict[str, Any]]) -> int:
+        """Replace the item catalog with the provided API payload."""
+
+        rows = []
+        for entry in items:
+            code = entry.get("code")
+            name = entry.get("name")
+            if not isinstance(code, int) or not isinstance(name, str):
+                continue
+            mode_type = entry.get("modeType")
+            if not isinstance(mode_type, int):
+                mode_type = None
+            item_type = entry.get("itemType")
+            if not isinstance(item_type, str):
+                item_type = None
+            item_grade = entry.get("itemGrade")
+            if not isinstance(item_grade, str):
+                item_grade = None
+            is_completed_raw = entry.get("isCompletedItem")
+            is_completed_item = (
+                int(bool(is_completed_raw)) if is_completed_raw is not None else 0
+            )
+
+            rows.append(
+                {
+                    "item_code": code,
+                    "name": name,
+                    "mode_type": mode_type,
+                    "item_type": item_type,
+                    "item_grade": item_grade,
+                    "is_completed_item": is_completed_item,
+                }
+            )
+
+        with self.cursor() as cur:
+            cur.execute("DELETE FROM items")
+            if rows:
+                cur.executemany(
+                    """
+                    INSERT INTO items (
+                        item_code,
+                        name,
+                        mode_type,
+                        item_type,
+                        item_grade,
+                        is_completed_item
+                    )
+                    VALUES (
+                        :item_code,
+                        :name,
+                        :mode_type,
+                        :item_type,
+                        :item_grade,
+                        :is_completed_item
+                    )
                     ON CONFLICT DO NOTHING
                     """,
                     rows,

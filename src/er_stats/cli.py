@@ -127,6 +127,14 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         default=None,
         help="Optional directory to write Parquet datasets (matches, participants)",
     )
+    ingest_parser.add_argument(
+        "--require-metadata-refresh",
+        action="store_true",
+        help=(
+            "Fail ingest if character or item catalog refresh fails "
+            "(default: continue with a warning)."
+        ),
+    )
 
     def add_context_args(subparser: argparse.ArgumentParser) -> None:
         subparser.add_argument(
@@ -178,24 +186,57 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
 
 def refresh_character_catalog(
     store: SQLiteStore, client: EternalReturnAPIClient
-) -> None:
-    """Fetch the official character list and store it in SQLite."""
+) -> bool:
+    """Fetch the official character list and store it in SQLite.
+
+    Returns True on success, False when refresh failed.
+    """
 
     try:
         payload = client.fetch_character_attributes()
     except Exception as exc:  # pragma: no cover - logging path
         ingest_logger.warning("Failed to refresh character catalog: %s", exc)
-        return
+        return False
 
     data = payload.get("data") if isinstance(payload, dict) else None
     if not isinstance(data, list):
         ingest_logger.warning(
             "Character API response did not include a 'data' list; skipping refresh"
         )
-        return
+        return False
 
     count = store.refresh_characters(data)
     ingest_logger.info("Stored %d character definitions", count)
+    return True
+
+
+def refresh_item_catalog(store: SQLiteStore, client: EternalReturnAPIClient) -> bool:
+    """Fetch the official item catalogs and store them in SQLite.
+
+    Returns True on success, False when refresh failed.
+    """
+
+    try:
+        armor_payload = client.fetch_item_armor()
+        weapon_payload = client.fetch_item_weapon()
+    except Exception as exc:  # pragma: no cover - logging path
+        ingest_logger.warning("Failed to refresh item catalog: %s", exc)
+        return False
+
+    armor_data = armor_payload.get("data") if isinstance(armor_payload, dict) else None
+    weapon_data = (
+        weapon_payload.get("data") if isinstance(weapon_payload, dict) else None
+    )
+    if not isinstance(armor_data, list) or not isinstance(weapon_data, list):
+        ingest_logger.warning(
+            "Item API response did not include 'data' lists; skipping refresh"
+        )
+        return False
+
+    combined = list(armor_data) + list(weapon_data)
+    count = store.refresh_items(combined)
+    ingest_logger.info("Stored %d item definitions", count)
+    return True
 
 
 def run(argv: Optional[Iterable[str]] = None) -> int:
@@ -257,7 +298,14 @@ def run(argv: Optional[Iterable[str]] = None) -> int:
                 max_retries=max_retries,
             )
 
-            refresh_character_catalog(store, client)
+            characters_ok = refresh_character_catalog(store, client)
+            items_ok = refresh_item_catalog(store, client)
+            if args.require_metadata_refresh and (not characters_ok or not items_ok):
+                ingest_logger.error(
+                    "Metadata refresh failed (characters or items); "
+                    "aborting ingest due to --require-metadata-refresh."
+                )
+                return 2
 
             def report(message: str) -> None:
                 ingest_logger.info(message)
