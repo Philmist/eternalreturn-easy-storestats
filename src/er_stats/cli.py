@@ -45,6 +45,35 @@ ingest_log_handler.setFormatter(ingest_log_formatter)
 logger.addHandler(default_log_handler)
 ingest_logger.addHandler(ingest_log_handler)
 
+MATCHING_MODE_TEAM_MODE_DEFAULTS = {
+    2: 3,
+    3: 3,
+    6: 4,
+    8: 3,
+}
+
+MATCHING_MODE_ALIASES = {
+    "normal": 2,
+    "ranked": 3,
+    "cobalt": 6,
+    "union": 8,
+}
+
+
+def parse_matching_mode(value: str) -> int:
+    """Parse matching mode from an integer or named alias."""
+
+    try:
+        return int(value)
+    except ValueError:
+        mode = MATCHING_MODE_ALIASES.get(value.lower())
+        if mode is None:
+            valid = ", ".join(sorted(MATCHING_MODE_ALIASES))
+            raise argparse.ArgumentTypeError(
+                f"Invalid matching mode '{value}'. Use an integer code or one of: {valid}."
+            )
+        return mode
+
 
 def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -138,17 +167,32 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
 
     def add_context_args(subparser: argparse.ArgumentParser) -> None:
         subparser.add_argument(
-            "--season", type=int, required=True, help="Season ID filter"
+            "--season",
+            type=int,
+            required=False,
+            help=(
+                "Season ID filter. Defaults to the latest "
+                "known season for ranked mode; 0 for other modes."
+            ),
         )
         subparser.add_argument("--server", required=True, help="Server name filter")
         subparser.add_argument(
-            "--mode", type=int, required=True, help="Matching mode filter"
+            "--mode",
+            type=parse_matching_mode,
+            required=True,
+            help=(
+                "Matching mode filter. Accepts an integer code "
+                "or one of: normal, ranked, cobalt, union."
+            ),
         )
         subparser.add_argument(
             "--team-mode",
             type=int,
-            default=3,
-            help="Matching team mode filter",
+            default=None,
+            help=(
+                "Matching team mode filter. When omitted, a default "
+                "is inferred from the matching mode when possible."
+            ),
         )
 
     char_parser = subparsers.add_parser(
@@ -382,11 +426,43 @@ def run(argv: Optional[Iterable[str]] = None) -> int:
                 client.close()
             return 0
 
+        matching_mode = args.mode
+        if args.team_mode is not None:
+            matching_team_mode = args.team_mode
+        else:
+            matching_team_mode = MATCHING_MODE_TEAM_MODE_DEFAULTS.get(matching_mode)
+            if matching_team_mode is None:
+                logger.error(
+                    "Matching team mode could not be inferred for matching mode %s. "
+                    "Please specify --team-mode.",
+                    matching_mode,
+                )
+                return 2
+
+        if args.season is not None:
+            season_id = args.season
+        else:
+            ranked_mode = MATCHING_MODE_ALIASES["ranked"]
+            if matching_mode == ranked_mode:
+                with store.cursor() as cur:
+                    cur.execute("SELECT MAX(season_id) AS max_season FROM matches")
+                    row = cur.fetchone()
+                max_season = row["max_season"] if row is not None else None
+                if max_season is None:
+                    logger.error(
+                        "No matches found in the database; cannot infer default "
+                        "season for ranked mode. Please specify --season."
+                    )
+                    return 2
+                season_id = max_season
+            else:
+                season_id = 0
+
         context = {
-            "season_id": args.season,
+            "season_id": season_id,
             "server_name": args.server,
-            "matching_mode": args.mode,
-            "matching_team_mode": args.team_mode,
+            "matching_mode": matching_mode,
+            "matching_team_mode": matching_team_mode,
         }
         if args.command == "character":
             rows = character_rankings(store, **context)
