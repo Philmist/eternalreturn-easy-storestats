@@ -498,6 +498,124 @@ def test_cli_mmr_aggregations_match_expected(store, make_game, capsys):
     assert jackie["avg_entry_cost"] == pytest.approx(5.0)
 
 
+def test_cli_mode_accepts_string_and_infers_team_mode(store, make_game, capsys):
+    store.upsert_from_game_payload(
+        make_game(
+            game_id=1,
+            user_num=1,
+            character_num=1,
+            game_rank=1,
+            matching_mode=6,
+            matching_team_mode=4,
+        )
+    )
+    store.refresh_characters(
+        [
+            {"characterCode": 1, "character": "Jackie"},
+        ]
+    )
+
+    code = run(
+        [
+            "--db",
+            store.path,
+            "character",
+            "--season",
+            "25",
+            "--server",
+            "NA",
+            "--mode",
+            "CoBaLt",
+        ]
+    )
+    assert code == 0
+    out = capsys.readouterr().out
+    rows = json.loads(out)
+    assert any(row["character_num"] == 1 for row in rows)
+
+
+def test_cli_default_season_ranked_uses_latest(store, make_game, capsys):
+    store.upsert_from_game_payload(
+        make_game(
+            game_id=1,
+            user_num=1,
+            character_num=1,
+            game_rank=1,
+            matching_team_mode=3,
+            season_id=1,
+            mmr_gain=10,
+        )
+    )
+    store.upsert_from_game_payload(
+        make_game(
+            game_id=2,
+            user_num=1,
+            character_num=1,
+            game_rank=1,
+            matching_team_mode=3,
+            season_id=3,
+            mmr_gain=20,
+        )
+    )
+    store.refresh_characters(
+        [
+            {"characterCode": 1, "character": "Jackie"},
+        ]
+    )
+
+    code = run(
+        [
+            "--db",
+            store.path,
+            "mmr",
+            "--server",
+            "NA",
+            "--mode",
+            "RANKED",
+        ]
+    )
+    assert code == 0
+    out = capsys.readouterr().out
+    rows = json.loads(out)
+    jackie = next(row for row in rows if row["character_num"] == 1)
+    assert jackie["matches"] == 1
+    assert jackie["avg_mmr_gain"] == pytest.approx(20.0)
+
+
+def test_cli_default_season_non_ranked_is_zero(store, make_game, capsys):
+    store.upsert_from_game_payload(
+        make_game(
+            game_id=1,
+            user_num=1,
+            character_num=1,
+            matching_mode=2,
+            matching_team_mode=3,
+            season_id=25,
+        )
+    )
+    store.refresh_characters(
+        [
+            {"characterCode": 1, "character": "Jackie"},
+        ]
+    )
+
+    code = run(
+        [
+            "--db",
+            store.path,
+            "character",
+            "--server",
+            "NA",
+            "--mode",
+            "normal",
+        ]
+    )
+    assert code == 0
+    out = capsys.readouterr().out
+    rows = json.loads(out)
+    assert rows == []
+
+
 def test_cli_ingest_only_newer_games_enabled_by_default(monkeypatch, store):
     from er_stats import cli as cli_mod
 
