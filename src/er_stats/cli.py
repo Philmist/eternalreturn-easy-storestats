@@ -219,7 +219,7 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         "--min-matches",
         type=int,
         default=3,
-        help="Minimum number of matches per user to include",
+        help="Minimum number of bot matches per character to include",
     )
 
     mmr_parser = subparsers.add_parser("mmr", help="Character MMR gain statistics")

@@ -135,18 +135,18 @@ def test_bot_usage_statistics_min_matches_and_context(store, make_game):
     # With min_matches=2, BotA (3 matches) and BotB (2 matches) should appear,
     # BotC (1 match) should be filtered out.
     rows_min2 = bot_usage_statistics(store, min_matches=2, **ctx)
-    keys_min2 = {(row["user_num"], row["character_num"]) for row in rows_min2}
-    assert keys_min2 == {(1001, 1), (1004, 4)}
+    keys_min2 = {row["character_num"] for row in rows_min2}
+    assert keys_min2 == {1, 4}
 
     # Verify BotA (Jackie): ranks [1, 1, 3] -> average 5/3, matches 3
-    bot_a = next(row for row in rows_min2 if row["user_num"] == 1001)
+    bot_a = next(row for row in rows_min2 if row["character_num"] == 1)
     assert bot_a["ml_bot"] == 1
     assert bot_a["character_name"] == "Jackie"
     assert bot_a["matches"] == 3
     assert bot_a["average_rank"] == pytest.approx(5 / 3)
 
     # Verify BotB (Fiora): ranks [2, 1] -> average 1.5, matches 2
-    bot_b = next(row for row in rows_min2 if row["user_num"] == 1004)
+    bot_b = next(row for row in rows_min2 if row["character_num"] == 4)
     assert bot_b["ml_bot"] == 1
     assert bot_b["character_name"] == "Fiora"
     assert bot_b["matches"] == 2
@@ -154,8 +154,8 @@ def test_bot_usage_statistics_min_matches_and_context(store, make_game):
 
     # With min_matches=3, only BotA remains
     rows_min3 = bot_usage_statistics(store, min_matches=3, **ctx)
-    keys_min3 = {(row["user_num"], row["character_num"]) for row in rows_min3}
-    assert keys_min3 == {(1001, 1)}
+    keys_min3 = {row["character_num"] for row in rows_min3}
+    assert keys_min3 == {1}
     only_bot = rows_min3[0]
     assert only_bot["matches"] == 3
     assert only_bot["average_rank"] == pytest.approx(5 / 3)

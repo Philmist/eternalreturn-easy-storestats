@@ -367,7 +367,7 @@ def test_cli_bot_aggregations_match_expected(store, make_game, capsys):
         ]
     )
 
-    # With min-matches=2, BotA and BotB should appear, BotC should not.
+    # With min-matches=2, Jackie and Fiora should appear, LiDailin should not.
     code = run(
         [
             "--db",
@@ -388,16 +388,16 @@ def test_cli_bot_aggregations_match_expected(store, make_game, capsys):
     assert code == 0
     out = capsys.readouterr().out
     rows = json.loads(out)
-    keys = {(row["user_num"], row["character_num"]) for row in rows}
-    assert keys == {(1001, 1), (1004, 4)}
+    keys = {row["character_num"] for row in rows}
+    assert keys == {1, 4}
 
-    bot_a = next(row for row in rows if row["user_num"] == 1001)
+    bot_a = next(row for row in rows if row["character_num"] == 1)
     assert bot_a["ml_bot"] == 1
     assert bot_a["character_name"] == "Jackie"
     assert bot_a["matches"] == 3
     assert bot_a["average_rank"] == pytest.approx(5 / 3)
 
-    bot_b = next(row for row in rows if row["user_num"] == 1004)
+    bot_b = next(row for row in rows if row["character_num"] == 4)
     assert bot_b["ml_bot"] == 1
     assert bot_b["character_name"] == "Fiora"
     assert bot_b["matches"] == 2
@@ -424,8 +424,8 @@ def test_cli_bot_aggregations_match_expected(store, make_game, capsys):
     assert code == 0
     out = capsys.readouterr().out
     rows = json.loads(out)
-    keys = {(row["user_num"], row["character_num"]) for row in rows}
-    assert keys == {(1001, 1)}
+    keys = {row["character_num"] for row in rows}
+    assert keys == {1}
     only_bot = rows[0]
     assert only_bot["matches"] == 3
     assert only_bot["average_rank"] == pytest.approx(5 / 3)

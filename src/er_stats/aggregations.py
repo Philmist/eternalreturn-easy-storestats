@@ -117,7 +117,7 @@ def bot_usage_statistics(
     matching_team_mode: int,
     min_matches: int = 3,
 ) -> List[Dict[str, Any]]:
-    """Return bot usage and average rank per character."""
+    """Return bot usage and average rank per character across all bot users."""
 
     query = f"""
         WITH filtered AS (
@@ -126,8 +126,7 @@ def bot_usage_statistics(
             JOIN matches AS m ON m.game_id = ums.game_id
             {_context_filter_clause()}
         )
-        SELECT f.user_num,
-               MAX(COALESCE(f.ml_bot, 0)) AS ml_bot,
+        SELECT MAX(COALESCE(f.ml_bot, 0)) AS ml_bot,
                f.character_num,
                c.name AS character_name,
                AVG(f.game_rank) AS average_rank,
@@ -135,9 +134,9 @@ def bot_usage_statistics(
         FROM filtered AS f
         LEFT JOIN characters AS c ON c.character_code = f.character_num
         WHERE f.ml_bot = 1
-        GROUP BY f.user_num, f.character_num, c.name
+        GROUP BY f.character_num, c.name
         HAVING matches >= :min_matches
-        ORDER BY ml_bot DESC, matches DESC
+        ORDER BY matches DESC
     """
     cur = store.connection.execute(
         query,
