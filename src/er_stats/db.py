@@ -91,6 +91,7 @@ class SQLiteStore:
                     matching_mode INTEGER NOT NULL,
                     matching_team_mode INTEGER NOT NULL,
                     server_name TEXT NOT NULL,
+                    version_season INTEGER,
                     version_major INTEGER,
                     version_minor INTEGER,
                     start_dtm TEXT,
@@ -237,19 +238,21 @@ class SQLiteStore:
                     matching_mode,
                     matching_team_mode,
                     server_name,
+                    version_season,
                     version_major,
                     version_minor,
                     start_dtm,
                     duration
                 ) VALUES (
                     :game_id, :season_id, :matching_mode, :matching_team_mode, :server_name,
-                    :version_major, :version_minor, :start_dtm, :duration
+                    :version_season, :version_major, :version_minor, :start_dtm, :duration
                 )
                 ON CONFLICT(game_id) DO UPDATE SET
                     season_id=excluded.season_id,
                     matching_mode=excluded.matching_mode,
                     matching_team_mode=excluded.matching_team_mode,
                     server_name=excluded.server_name,
+                    version_season=excluded.version_season,
                     version_major=excluded.version_major,
                     version_minor=excluded.version_minor,
                     start_dtm=excluded.start_dtm,
@@ -261,6 +264,7 @@ class SQLiteStore:
                     "matching_mode": game.get("matchingMode"),
                     "matching_team_mode": game.get("matchingTeamMode"),
                     "server_name": game.get("serverName"),
+                    "version_season": game.get("versionSeason"),
                     "version_major": game.get("versionMajor"),
                     "version_minor": game.get("versionMinor"),
                     "start_dtm": parse_start_time(game.get("startDtm")),

@@ -44,6 +44,7 @@ def _make_game(
         "matchingMode": matching_mode,
         "matchingTeamMode": matching_team_mode,
         "serverName": server_name,
+        "versionSeason": 1,
         "versionMajor": 1,
         "versionMinor": 0,
         "startDtm": "2025-10-27T23:24:03.003+0900",

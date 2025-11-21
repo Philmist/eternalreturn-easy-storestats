@@ -23,6 +23,7 @@ from .db import parse_start_time
 MATCH_SCHEMA = pa.schema(
     [
         pa.field("game_id", pa.int64()),
+        pa.field("version_season", pa.int64()),
         pa.field("version_major", pa.int64()),
         pa.field("version_minor", pa.int64()),
         pa.field("start_dtm", pa.string()),
@@ -322,6 +323,7 @@ class ParquetExporter:
     ) -> None:
         row = {
             "game_id": _safe_int(game.get("gameId")),
+            "version_season": _safe_int(game.get("versionSeason")),
             "version_major": _safe_int(game.get("versionMajor")),
             "version_minor": _safe_int(game.get("versionMinor")),
             "start_dtm": parse_start_time(game.get("startDtm")),
