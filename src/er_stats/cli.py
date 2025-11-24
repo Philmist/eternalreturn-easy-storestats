@@ -375,6 +375,7 @@ def run(argv: Optional[Iterable[str]] = None) -> int:
             if args.nicknames:
                 nickname_sources.extend(args.nicknames)
             if nickname_sources:
+                ingest_logger.info("Try to resolve nickname(s).")
                 for nick in nickname_sources:
                     try:
                         payload = client.fetch_user_by_nickname(nick)
