@@ -161,6 +161,54 @@ def test_bot_usage_statistics_min_matches_and_context(store, make_game):
     assert only_bot["average_rank"] == pytest.approx(5 / 3)
 
 
+def test_character_rankings_filters_by_time_window(store, make_game):
+    ctx = dict(season_id=25, server_name="NA", matching_mode=3, matching_team_mode=1)
+
+    early_game = make_game(
+        game_id=101, user_num=1, character_num=1, game_rank=1, season_id=25
+    )
+    early_game["startDtm"] = "2025-11-24T23:00:00+09:00"  # 14:00Z
+    store.upsert_from_game_payload(early_game)
+
+    later_game = make_game(
+        game_id=102, user_num=2, character_num=2, game_rank=2, season_id=25
+    )
+    later_game["startDtm"] = "2025-11-24T15:00:00+00:00"  # 15:00Z
+    store.upsert_from_game_payload(later_game)
+
+    all_rows = character_rankings(store, **ctx)
+    assert {row["character_num"] for row in all_rows} == {1, 2}
+
+    filtered_rows = character_rankings(
+        store,
+        start_dtm_from="2025-11-24T14:30:00+00:00",
+        **ctx,
+    )
+    assert {row["character_num"] for row in filtered_rows} == {2}
+
+
+def test_character_rankings_filters_by_version_major(store, make_game):
+    ctx = dict(season_id=25, server_name="NA", matching_mode=3, matching_team_mode=1)
+
+    game_v1 = make_game(
+        game_id=201, user_num=3, character_num=3, game_rank=1, season_id=25
+    )
+    game_v1["versionMajor"] = 1
+    store.upsert_from_game_payload(game_v1)
+
+    game_v2 = make_game(
+        game_id=202, user_num=4, character_num=4, game_rank=2, season_id=25
+    )
+    game_v2["versionMajor"] = 2
+    store.upsert_from_game_payload(game_v2)
+
+    all_rows = character_rankings(store, **ctx)
+    assert {row["character_num"] for row in all_rows} == {3, 4}
+
+    v2_rows = character_rankings(store, version_major=2, **ctx)
+    assert {row["character_num"] for row in v2_rows} == {4}
+
+
 def test_character_rankings_three_matches_team_of_three(store, make_game):
     ctx = dict(
         season_id=25,

@@ -215,6 +215,12 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
+# uv cache
+.uv_cache/
+
+# Temporary Directory
+.tmp/
+
 # Live Data
 *.sqlite3
 *.duckdb

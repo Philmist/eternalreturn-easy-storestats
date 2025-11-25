@@ -2,18 +2,44 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from .db import SQLiteStore
 
 
-def _context_filter_clause() -> str:
-    return (
-        "WHERE m.season_id = :season_id "
-        "AND m.server_name = :server_name "
-        "AND m.matching_mode = :matching_mode "
-        "AND m.matching_team_mode = :matching_team_mode"
-    )
+def _context_filters(
+    *,
+    season_id: int,
+    server_name: str,
+    matching_mode: int,
+    matching_team_mode: int,
+    start_dtm_from: Optional[str] = None,
+    start_dtm_to: Optional[str] = None,
+    version_major: Optional[int] = None,
+) -> tuple[str, Dict[str, Any]]:
+    params: Dict[str, Any] = {
+        "season_id": season_id,
+        "server_name": server_name,
+        "matching_mode": matching_mode,
+        "matching_team_mode": matching_team_mode,
+    }
+    clauses = [
+        "m.season_id = :season_id",
+        "m.server_name = :server_name",
+        "m.matching_mode = :matching_mode",
+        "m.matching_team_mode = :matching_team_mode",
+    ]
+    if start_dtm_from is not None:
+        params["start_dtm_from"] = start_dtm_from
+        clauses.append("unixepoch(m.start_dtm, 'auto') >= unixepoch(:start_dtm_from)")
+    if start_dtm_to is not None:
+        params["start_dtm_to"] = start_dtm_to
+        clauses.append("unixepoch(m.start_dtm, 'auto') < unixepoch(:start_dtm_to)")
+    if version_major is not None:
+        params["version_major"] = version_major
+        clauses.append("m.version_major = :version_major")
+    where_clause = " WHERE " + " AND ".join(clauses)
+    return where_clause, params
 
 
 def character_rankings(
@@ -23,15 +49,27 @@ def character_rankings(
     server_name: str,
     matching_mode: int,
     matching_team_mode: int,
+    start_dtm_from: Optional[str] = None,
+    start_dtm_to: Optional[str] = None,
+    version_major: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
     """Return average rank and distribution per character."""
 
+    where_clause, params = _context_filters(
+        season_id=season_id,
+        server_name=server_name,
+        matching_mode=matching_mode,
+        matching_team_mode=matching_team_mode,
+        start_dtm_from=start_dtm_from,
+        start_dtm_to=start_dtm_to,
+        version_major=version_major,
+    )
     query = f"""
         WITH filtered AS (
             SELECT ums.game_id, ums.user_num, ums.character_num, ums.game_rank
             FROM user_match_stats AS ums
             JOIN matches AS m ON m.game_id = ums.game_id
-            {_context_filter_clause()}
+            {where_clause}
         )
         SELECT f.character_num,
                c.name AS character_name,
@@ -48,12 +86,7 @@ def character_rankings(
     """
     cur = store.connection.execute(
         query,
-        {
-            "season_id": season_id,
-            "server_name": server_name,
-            "matching_mode": matching_mode,
-            "matching_team_mode": matching_team_mode,
-        },
+        params,
     )
     rows = cur.fetchall()
     return [dict(row) for row in rows]
@@ -67,15 +100,28 @@ def equipment_rankings(
     matching_mode: int,
     matching_team_mode: int,
     min_samples: int = 5,
+    start_dtm_from: Optional[str] = None,
+    start_dtm_to: Optional[str] = None,
+    version_major: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
     """Compute average rank per equipment item."""
 
+    where_clause, params = _context_filters(
+        season_id=season_id,
+        server_name=server_name,
+        matching_mode=matching_mode,
+        matching_team_mode=matching_team_mode,
+        start_dtm_from=start_dtm_from,
+        start_dtm_to=start_dtm_to,
+        version_major=version_major,
+    )
+    params["min_samples"] = min_samples
     query = f"""
         WITH filtered AS (
             SELECT ums.game_id, ums.user_num, ums.game_rank
             FROM user_match_stats AS ums
             JOIN matches AS m ON m.game_id = ums.game_id
-            {_context_filter_clause()}
+            {where_clause}
         )
         SELECT e.item_id,
                i.name AS item_name,
@@ -96,13 +142,7 @@ def equipment_rankings(
     """
     cur = store.connection.execute(
         query,
-        {
-            "season_id": season_id,
-            "server_name": server_name,
-            "matching_mode": matching_mode,
-            "matching_team_mode": matching_team_mode,
-            "min_samples": min_samples,
-        },
+        params,
     )
     rows = cur.fetchall()
     return [dict(row) for row in rows]
@@ -116,15 +156,28 @@ def bot_usage_statistics(
     matching_mode: int,
     matching_team_mode: int,
     min_matches: int = 3,
+    start_dtm_from: Optional[str] = None,
+    start_dtm_to: Optional[str] = None,
+    version_major: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
     """Return bot usage and average rank per character across all bot users."""
 
+    where_clause, params = _context_filters(
+        season_id=season_id,
+        server_name=server_name,
+        matching_mode=matching_mode,
+        matching_team_mode=matching_team_mode,
+        start_dtm_from=start_dtm_from,
+        start_dtm_to=start_dtm_to,
+        version_major=version_major,
+    )
+    params["min_matches"] = min_matches
     query = f"""
         WITH filtered AS (
             SELECT ums.*, m.season_id
             FROM user_match_stats AS ums
             JOIN matches AS m ON m.game_id = ums.game_id
-            {_context_filter_clause()}
+            {where_clause}
         )
         SELECT MAX(COALESCE(f.ml_bot, 0)) AS ml_bot,
                f.character_num,
@@ -140,13 +193,7 @@ def bot_usage_statistics(
     """
     cur = store.connection.execute(
         query,
-        {
-            "season_id": season_id,
-            "server_name": server_name,
-            "matching_mode": matching_mode,
-            "matching_team_mode": matching_team_mode,
-            "min_matches": min_matches,
-        },
+        params,
     )
     rows = cur.fetchall()
     return [dict(row) for row in rows]
@@ -159,9 +206,21 @@ def mmr_change_statistics(
     server_name: str,
     matching_mode: int,
     matching_team_mode: int,
+    start_dtm_from: Optional[str] = None,
+    start_dtm_to: Optional[str] = None,
+    version_major: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
     """Additional aggregation showing mean MMR gain per character."""
 
+    where_clause, params = _context_filters(
+        season_id=season_id,
+        server_name=server_name,
+        matching_mode=matching_mode,
+        matching_team_mode=matching_team_mode,
+        start_dtm_from=start_dtm_from,
+        start_dtm_to=start_dtm_to,
+        version_major=version_major,
+    )
     query = f"""
         WITH filtered AS (
             SELECT ums.character_num,
@@ -169,7 +228,7 @@ def mmr_change_statistics(
                    ums.mmr_loss_entry_cost
             FROM user_match_stats AS ums
             JOIN matches AS m ON m.game_id = ums.game_id
-            {_context_filter_clause()}
+            {where_clause}
         )
         SELECT f.character_num,
                c.name AS character_name,
@@ -184,12 +243,7 @@ def mmr_change_statistics(
     """
     cur = store.connection.execute(
         query,
-        {
-            "season_id": season_id,
-            "server_name": server_name,
-            "matching_mode": matching_mode,
-            "matching_team_mode": matching_team_mode,
-        },
+        params,
     )
     rows = cur.fetchall()
     return [dict(row) for row in rows]

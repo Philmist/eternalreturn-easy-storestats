@@ -37,6 +37,9 @@ test = [
 er-stats = "er_stats.cli:main"
 er-stats-tools = "er_stats.tools_cli:main"
 
+[tool.uv]
+cache-dir = "./.uv_cache"
+
 [tool.pytest.ini_options]
 minversion = "6.0"
 testpaths = [
@@ -44,6 +47,7 @@ testpaths = [
   "integration",
 ]
 strict = true
+cache_dir = "./.pytest_cache"
 
 [tool.ruff.lint]
 extend-select = [

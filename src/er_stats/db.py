@@ -183,6 +183,9 @@ class SQLiteStore:
                 CREATE INDEX IF NOT EXISTS idx_matches_context
                     ON matches (season_id, server_name, matching_mode, matching_team_mode);
 
+                CREATE INDEX IF NOT EXISTS idx_matches_start_unix
+                    ON matches (unixepoch(start_dtm, 'auto'));
+
                 CREATE INDEX IF NOT EXISTS idx_user_match_character
                     ON user_match_stats (character_num, game_rank);
 

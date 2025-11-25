@@ -210,6 +210,11 @@ Run aggregations (outputs JSON to stdout):
 python -m er_stats.cli --db er.sqlite character \
   --season 25 --server NA --mode 3 --team-mode 1
 
+# Limit to a time window (ISO-8601 with timezone or relative presets like last:7d)
+python -m er_stats.cli --db er.sqlite character \
+  --season 25 --server NA --mode 3 --team-mode 1 \
+  --range last:7d
+
 # Equipment performance
 python -m er_stats.cli --db er.sqlite equipment \
   --season 25 --server NA --mode 3 --team-mode 1 --min-samples 5
@@ -221,6 +226,10 @@ python -m er_stats.cli --db er.sqlite bot \
 # MMR change stats
 python -m er_stats.cli --db er.sqlite mmr \
   --season 25 --server NA --mode 3 --team-mode 1
+
+# Filter by a specific patch (season + version_major) or the latest patch in the DB
+python -m er_stats.cli --db er.sqlite character \
+  --server NA --mode 3 --team-mode 1 --patch latest
 ```
 
 ## Data Model (SQLite)

@@ -200,6 +200,162 @@ def test_cli_character_aggregations_match_expected(store, make_game, capsys):
     assert hyunwoo["average_rank"] == pytest.approx(5 / 3)
 
 
+def test_cli_character_time_filter_via_args(store, make_game, capsys):
+    store.refresh_characters(
+        [
+            {"characterCode": 1, "character": "Jackie"},
+            {"characterCode": 2, "character": "Aya"},
+        ]
+    )
+
+    early = make_game(
+        game_id=1001, user_num=1, character_num=1, game_rank=1, season_id=25
+    )
+    early["startDtm"] = "2025-11-24T00:00:00+00:00"
+    store.upsert_from_game_payload(early)
+
+    late = make_game(
+        game_id=1002, user_num=2, character_num=2, game_rank=2, season_id=25
+    )
+    late["startDtm"] = "2025-11-25T00:00:00+00:00"
+    store.upsert_from_game_payload(late)
+
+    code = run(
+        [
+            "--db",
+            store.path,
+            "character",
+            "--server",
+            "NA",
+            "--mode",
+            "3",
+            "--team-mode",
+            "1",
+            "--season",
+            "25",
+            "--start-dtm",
+            "2025-11-24T12:00:00+00:00",
+        ]
+    )
+    assert code == 0
+    out = capsys.readouterr().out
+    rows = json.loads(out)
+    assert {row["character_num"] for row in rows} == {2}
+
+
+def test_cli_patch_latest_picks_highest_version(store, make_game, capsys):
+    store.refresh_characters(
+        [
+            {"characterCode": 1, "character": "Jackie"},
+            {"characterCode": 2, "character": "Aya"},
+        ]
+    )
+    g1 = make_game(
+        game_id=2001,
+        user_num=10,
+        character_num=1,
+        game_rank=1,
+        season_id=25,
+    )
+    g1["versionMajor"] = 1
+    store.upsert_from_game_payload(g1)
+
+    g2 = make_game(
+        game_id=2002,
+        user_num=11,
+        character_num=2,
+        game_rank=2,
+        season_id=26,
+    )
+    g2["versionMajor"] = 2
+    store.upsert_from_game_payload(g2)
+
+    code = run(
+        [
+            "--db",
+            store.path,
+            "character",
+            "--server",
+            "NA",
+            "--mode",
+            "3",
+            "--team-mode",
+            "1",
+            "--patch",
+            "latest",
+        ]
+    )
+    assert code == 0
+    out = capsys.readouterr().out
+    rows = json.loads(out)
+    assert {row["character_num"] for row in rows} == {2}
+
+
+def test_cli_patch_and_season_conflict_returns_error(store):
+    code = run(
+        [
+            "--db",
+            store.path,
+            "character",
+            "--server",
+            "NA",
+            "--mode",
+            "3",
+            "--team-mode",
+            "1",
+            "--season",
+            "25",
+            "--patch",
+            "26.1",
+        ]
+    )
+    assert code == 2
+
+
+def test_cli_range_conflicts_with_explicit_window(store):
+    code = run(
+        [
+            "--db",
+            store.path,
+            "character",
+            "--server",
+            "NA",
+            "--mode",
+            "3",
+            "--team-mode",
+            "1",
+            "--season",
+            "25",
+            "--start-dtm",
+            "2025-01-01T00:00:00+00:00",
+            "--range",
+            "last:1d",
+        ]
+    )
+    assert code == 2
+
+
+def test_cli_invalid_range_returns_error(store):
+    code = run(
+        [
+            "--db",
+            store.path,
+            "character",
+            "--server",
+            "NA",
+            "--mode",
+            "3",
+            "--team-mode",
+            "1",
+            "--season",
+            "25",
+            "--range",
+            "last:xd",
+        ]
+    )
+    assert code == 2
+
+
 def test_cli_equipment_aggregations_match_expected(store, make_game, capsys):
     # Two matches; item 101101 is used twice, 101102 once.
     game1 = make_game(
