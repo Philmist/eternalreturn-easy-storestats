@@ -17,6 +17,7 @@ from .aggregations import (
     character_rankings,
     equipment_rankings,
     mmr_change_statistics,
+    team_composition_statistics,
 )
 from .api_client import EternalReturnAPIClient
 from .config import ConfigError, load_ingest_config
@@ -78,6 +79,11 @@ def parse_matching_mode(value: str) -> int:
 
 
 def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
+    parser = _build_parser()
+    return parser.parse_args(argv)
+
+
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Ingest Eternal Return API data into SQLite and query aggregates.",
     )
@@ -177,7 +183,11 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
                 "known season for ranked mode; 0 for other modes."
             ),
         )
-        subparser.add_argument("--server", required=True, help="Server name filter")
+        subparser.add_argument(
+            "--server",
+            required=False,
+            help="Server name filter. Omit to include all servers.",
+        )
         subparser.add_argument(
             "--mode",
             type=parse_matching_mode,
@@ -224,12 +234,17 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
             ),
         )
 
-    char_parser = subparsers.add_parser(
+    stats_parser = subparsers.add_parser(
+        "stats", help="Query aggregated player and equipment statistics"
+    )
+    stats_subparsers = stats_parser.add_subparsers(dest="stats_command", required=True)
+
+    char_parser = stats_subparsers.add_parser(
         "character", help="Character average rank and distribution"
     )
     add_context_args(char_parser)
 
-    equip_parser = subparsers.add_parser(
+    equip_parser = stats_subparsers.add_parser(
         "equipment", help="Equipment performance statistics"
     )
     add_context_args(equip_parser)
@@ -240,7 +255,7 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         help="Minimum number of matches required to show equipment stats",
     )
 
-    bot_parser = subparsers.add_parser(
+    bot_parser = stats_subparsers.add_parser(
         "bot", help="Bot usage and performance statistics"
     )
     add_context_args(bot_parser)
@@ -251,10 +266,48 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         help="Minimum number of bot matches per character to include",
     )
 
-    mmr_parser = subparsers.add_parser("mmr", help="Character MMR gain statistics")
+    mmr_parser = stats_subparsers.add_parser(
+        "mmr", help="Character MMR gain statistics"
+    )
     add_context_args(mmr_parser)
 
-    return parser.parse_args(argv)
+    team_parser = stats_subparsers.add_parser(
+        "team", help="Team composition performance statistics"
+    )
+    add_context_args(team_parser)
+    team_parser.add_argument(
+        "--top-n",
+        type=int,
+        default=3,
+        help="Rank threshold for counting a top finish (default: 3)",
+    )
+    team_parser.add_argument(
+        "--min-matches",
+        type=int,
+        default=5,
+        help="Minimum matches required to include a composition",
+    )
+    team_parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Limit the number of compositions returned",
+    )
+    team_parser.add_argument(
+        "--sort-by",
+        choices=["win-rate", "top-rate", "avg-rank"],
+        default="win-rate",
+        help="Sort compositions by win-rate, top-rate, or avg-rank",
+    )
+    team_parser.add_argument(
+        "--no-include-names",
+        dest="include_names",
+        action="store_false",
+        default=True,
+        help="Do not include character names in the output",
+    )
+
+    return parser
 
 
 def _parse_datetime_or_date(value: str) -> dt.datetime:
@@ -414,25 +467,33 @@ def resolve_patch_spec(
     spec: PatchSpec,
     store: SQLiteStore,
     *,
-    server_name: str,
+    server_name: Optional[str],
     matching_mode: int,
     matching_team_mode: int,
 ) -> Tuple[int, int]:
+    params = {
+        "matching_mode": matching_mode,
+        "matching_team_mode": matching_team_mode,
+    }
     if spec.latest:
-        cur = store.connection.execute(
-            """
+        where_clauses = [
+            "matching_mode = :matching_mode",
+            "matching_team_mode = :matching_team_mode",
+            "season_id IS NOT NULL",
+            "version_major IS NOT NULL",
+        ]
+        if server_name is not None:
+            where_clauses.append("server_name = :server_name")
+            params["server_name"] = server_name
+        where = " AND ".join(where_clauses)
+        query = f"""
             SELECT season_id, version_major
             FROM matches
-            WHERE server_name = ?
-              AND matching_mode = ?
-              AND matching_team_mode = ?
-              AND season_id IS NOT NULL
-              AND version_major IS NOT NULL
+            WHERE {where}
             ORDER BY season_id DESC, version_major DESC
             LIMIT 1
-            """,
-            (server_name, matching_mode, matching_team_mode),
-        )
+        """
+        cur = store.connection.execute(query, params)
         row = cur.fetchone()
         if row is None:
             raise argparse.ArgumentTypeError(
@@ -442,6 +503,252 @@ def resolve_patch_spec(
     if spec.season_id is None or spec.version_major is None:
         raise argparse.ArgumentTypeError("Patch specification is incomplete.")
     return spec.season_id, spec.version_major
+
+
+def _load_ingest_config(
+    args: argparse.Namespace,
+) -> Tuple[Optional[dict], Optional[int]]:
+    if args.command != "ingest" or args.config is None:
+        return None, None
+    try:
+        ingest_config = load_ingest_config(args.config)
+        logger.info("Load config from '%s'", args.config)
+        return ingest_config, None
+    except ConfigError as exc:
+        logger.error("%s", exc)
+        return None, 2
+
+
+def _resolve_db_path(
+    args: argparse.Namespace, ingest_config: Optional[dict]
+) -> Optional[Path]:
+    if args.command == "ingest":
+        if args.db is not None:
+            return args.db
+        if ingest_config is not None:
+            ingest_table = ingest_config.get("ingest", {})
+            db_value = ingest_table.get("db_path")
+            if isinstance(db_value, str):
+                return Path(db_value)
+        return None
+    return args.db
+
+
+def _run_ingest(
+    args: argparse.Namespace, store: SQLiteStore, ingest_config: Optional[dict]
+) -> int:
+    ingest_table = ingest_config.get("ingest", {}) if ingest_config is not None else {}
+    seeds_cfg = ingest_config.get("seeds", {}) if ingest_config is not None else {}
+    auth_cfg = ingest_config.get("auth", {}) if ingest_config is not None else {}
+    base_url = ingest_table.get("base_url", args.base_url)
+    min_interval = ingest_table.get("min_interval", args.min_interval)
+    max_retries = ingest_table.get("max_retries", args.max_retries)
+    api_key = args.api_key
+    if api_key is None:
+        api_key_env_name = auth_cfg.get("api_key_env")
+        if isinstance(api_key_env_name, str) and api_key_env_name:
+            api_key = os.environ.get(api_key_env_name) or None
+    client = EternalReturnAPIClient(
+        base_url,
+        api_key=api_key,
+        min_interval=min_interval,
+        max_retries=max_retries,
+    )
+
+    characters_ok = refresh_character_catalog(store, client)
+    items_ok = refresh_item_catalog(store, client)
+    if args.require_metadata_refresh and (not characters_ok or not items_ok):
+        ingest_logger.error(
+            "Metadata refresh failed (characters or items); "
+            "aborting ingest due to --require-metadata-refresh."
+        )
+        return 2
+
+    def report(message: str) -> None:
+        ingest_logger.info(message)
+
+    parquet_exporter = None
+    parquet_dir_value = args.parquet_dir
+    if parquet_dir_value is None and isinstance(ingest_table.get("parquet_dir"), str):
+        parquet_dir_value = Path(ingest_table["parquet_dir"])
+    if parquet_dir_value is not None:
+        try:
+            from .parquet_export import ParquetExporter
+
+            parquet_exporter = ParquetExporter(parquet_dir_value)
+        except Exception as e:
+            ingest_logger.warning("Parquet export disabled: %s", e)
+    seed_users = list(seeds_cfg.get("users", []))
+    if args.users:
+        seed_users.extend(args.users)
+    nickname_sources = list(seeds_cfg.get("nicknames", []))
+    if args.nicknames:
+        nickname_sources.extend(args.nicknames)
+    if nickname_sources:
+        ingest_logger.info("Try to resolve nickname(s).")
+        for nick in nickname_sources:
+            try:
+                payload = client.fetch_user_by_nickname(nick)
+                user = payload.get("user") or {}
+                user_num = user.get("userNum")
+                if not isinstance(user_num, int):
+                    raise ValueError(
+                        f"Nickname '{nick}' did not resolve to a valid userNum"
+                    )
+                seed_users.append(user_num)
+            except Exception as e:
+                ingest_logger.error("Failed to resolve nickname '%s': %s", nick, e)
+                return 2
+    if not seed_users:
+        ingest_logger.error("No seeds provided. Specify at least --user or --nickname.")
+        return 2
+    depth = ingest_table.get("depth", args.depth)
+    if args.max_games is not None:
+        max_games_per_user = args.max_games
+    else:
+        max_games_per_user = ingest_table.get("max_games_per_user")
+    config_only_newer = ingest_table.get("only_newer_games")
+    if args.only_newer_games is not True:
+        only_newer_games = args.only_newer_games
+    elif isinstance(config_only_newer, bool):
+        only_newer_games = config_only_newer
+    else:
+        only_newer_games = args.only_newer_games
+    manager = IngestionManager(
+        client,
+        store,
+        max_games_per_user=max_games_per_user,
+        only_newer_games=only_newer_games,
+        parquet_exporter=parquet_exporter,
+        progress_callback=report,
+    )
+    try:
+        manager.ingest_from_seeds(seed_users, depth=depth)
+    finally:
+        if parquet_exporter is not None:
+            try:
+                parquet_exporter.close()
+            except Exception:
+                pass
+        client.close()
+    return 0
+
+
+def _run_stats(args: argparse.Namespace, store: SQLiteStore) -> int:
+    matching_mode = args.mode
+    if args.team_mode is not None:
+        matching_team_mode = args.team_mode
+    else:
+        matching_team_mode = MATCHING_MODE_TEAM_MODE_DEFAULTS.get(matching_mode)
+        if matching_team_mode is None:
+            logger.error(
+                "Matching team mode could not be inferred for matching mode %s. "
+                "Please specify --team-mode.",
+                matching_mode,
+            )
+            return 2
+
+    try:
+        patch_spec = parse_patch_spec(getattr(args, "patch", None))
+    except argparse.ArgumentTypeError as exc:
+        logger.error("%s", exc)
+        return 2
+
+    try:
+        start_dtm_from, start_dtm_to = parse_time_window(
+            getattr(args, "start_dtm", None),
+            getattr(args, "end_dtm", None),
+            getattr(args, "time_range", None),
+        )
+    except argparse.ArgumentTypeError as exc:
+        logger.error("%s", exc)
+        return 2
+
+    season_override: Optional[int] = None
+    version_major: Optional[int] = None
+    if patch_spec:
+        if patch_spec.latest:
+            try:
+                season_override, version_major = resolve_patch_spec(
+                    patch_spec,
+                    store,
+                    server_name=args.server,
+                    matching_mode=matching_mode,
+                    matching_team_mode=matching_team_mode,
+                )
+            except argparse.ArgumentTypeError as exc:
+                logger.error("%s", exc)
+                return 2
+        else:
+            season_override, version_major = (
+                patch_spec.season_id,
+                patch_spec.version_major,
+            )
+            if (
+                args.season is not None
+                and season_override is not None
+                and args.season != season_override
+            ):
+                logger.error(
+                    "Patch season %s conflicts with --season %s",
+                    season_override,
+                    args.season,
+                )
+                return 2
+
+    if season_override is not None:
+        season_id = season_override
+    elif args.season is not None:
+        season_id = args.season
+    else:
+        ranked_mode = MATCHING_MODE_ALIASES["ranked"]
+        if matching_mode == ranked_mode:
+            with store.cursor() as cur:
+                cur.execute("SELECT MAX(season_id) AS max_season FROM matches")
+                row = cur.fetchone()
+            max_season = row["max_season"] if row is not None else None
+            if max_season is None:
+                logger.error(
+                    "No matches found in the database; cannot infer default "
+                    "season for ranked mode. Please specify --season."
+                )
+                return 2
+            season_id = max_season
+        else:
+            season_id = 0
+
+    context = {
+        "season_id": season_id,
+        "server_name": args.server,
+        "matching_mode": matching_mode,
+        "matching_team_mode": matching_team_mode,
+        "start_dtm_from": start_dtm_from,
+        "start_dtm_to": start_dtm_to,
+        "version_major": version_major,
+    }
+    if args.stats_command == "character":
+        rows = character_rankings(store, **context)
+    elif args.stats_command == "equipment":
+        rows = equipment_rankings(store, min_samples=args.min_samples, **context)
+    elif args.stats_command == "bot":
+        rows = bot_usage_statistics(store, min_matches=args.min_matches, **context)
+    elif args.stats_command == "mmr":
+        rows = mmr_change_statistics(store, **context)
+    elif args.stats_command == "team":
+        rows = team_composition_statistics(
+            store,
+            top_n=args.top_n,
+            min_matches=args.min_matches,
+            include_names=args.include_names,
+            sort_by=args.sort_by,
+            limit=args.limit,
+            **context,
+        )
+    else:  # pragma: no cover - argparse enforces available commands
+        raise ValueError(f"Unsupported command: {args.stats_command}")
+    json.dump(rows, sys.stdout, indent=2)
+    sys.stdout.write("\n")
+    return 0
 
 
 def refresh_character_catalog(
@@ -502,251 +809,28 @@ def refresh_item_catalog(store: SQLiteStore, client: EternalReturnAPIClient) -> 
 def run(argv: Optional[Iterable[str]] = None) -> int:
     args = parse_args(argv)
 
-    db_path: Optional[Path] = None
-    ingest_config = None
-    if args.command == "ingest":
-        if args.config is not None:
-            try:
-                ingest_config = load_ingest_config(args.config)
-                logger.info("Load config from '%s'", args.config)
-            except ConfigError as exc:
-                logger.error("%s", exc)
-                return 2
-        if args.db is not None:
-            db_path = args.db
-        elif ingest_config is not None:
-            ingest_table = ingest_config.get("ingest", {})
-            db_value = ingest_table.get("db_path")
-            if isinstance(db_value, str):
-                db_path = Path(db_value)
-        if db_path is None:
+    ingest_config, config_error = _load_ingest_config(args)
+    if config_error is not None:
+        return config_error
+
+    db_path = _resolve_db_path(args, ingest_config)
+    if db_path is None:
+        if args.command == "ingest":
             logger.error(
                 "Database path must be provided via --db or ingest.db_path in the config file."
             )
-            return 2
-    else:
-        if args.db is None:
+        else:
             logger.error("--db is required for this command.")
-            return 2
-        db_path = args.db
+        return 2
 
     store = SQLiteStore(str(db_path))
     try:
         store.setup_schema()
         if args.command == "ingest":
-            ingest_table = (
-                ingest_config.get("ingest", {}) if ingest_config is not None else {}
-            )
-            seeds_cfg = (
-                ingest_config.get("seeds", {}) if ingest_config is not None else {}
-            )
-            auth_cfg = (
-                ingest_config.get("auth", {}) if ingest_config is not None else {}
-            )
-            base_url = ingest_table.get("base_url", args.base_url)
-            min_interval = ingest_table.get("min_interval", args.min_interval)
-            max_retries = ingest_table.get("max_retries", args.max_retries)
-            api_key = args.api_key
-            if api_key is None:
-                api_key_env_name = auth_cfg.get("api_key_env")
-                if isinstance(api_key_env_name, str) and api_key_env_name:
-                    api_key = os.environ.get(api_key_env_name) or None
-            client = EternalReturnAPIClient(
-                base_url,
-                api_key=api_key,
-                min_interval=min_interval,
-                max_retries=max_retries,
-            )
-
-            characters_ok = refresh_character_catalog(store, client)
-            items_ok = refresh_item_catalog(store, client)
-            if args.require_metadata_refresh and (not characters_ok or not items_ok):
-                ingest_logger.error(
-                    "Metadata refresh failed (characters or items); "
-                    "aborting ingest due to --require-metadata-refresh."
-                )
-                return 2
-
-            def report(message: str) -> None:
-                ingest_logger.info(message)
-
-            parquet_exporter = None
-            parquet_dir_value = args.parquet_dir
-            if parquet_dir_value is None and isinstance(
-                ingest_table.get("parquet_dir"), str
-            ):
-                parquet_dir_value = Path(ingest_table["parquet_dir"])
-            if parquet_dir_value is not None:
-                try:
-                    from .parquet_export import ParquetExporter
-
-                    parquet_exporter = ParquetExporter(parquet_dir_value)
-                except Exception as e:
-                    ingest_logger.warning("Parquet export disabled: %s", e)
-            # Build seed user list from --user and --nickname
-            seed_users = list(seeds_cfg.get("users", []))
-            if args.users:
-                seed_users.extend(args.users)
-            nickname_sources = list(seeds_cfg.get("nicknames", []))
-            if args.nicknames:
-                nickname_sources.extend(args.nicknames)
-            if nickname_sources:
-                ingest_logger.info("Try to resolve nickname(s).")
-                for nick in nickname_sources:
-                    try:
-                        payload = client.fetch_user_by_nickname(nick)
-                        user = payload.get("user") or {}
-                        user_num = user.get("userNum")
-                        if not isinstance(user_num, int):
-                            raise ValueError(
-                                f"Nickname '{nick}' did not resolve to a valid userNum"
-                            )
-                        seed_users.append(user_num)
-                    except Exception as e:
-                        ingest_logger.error(
-                            "Failed to resolve nickname '%s': %s", nick, e
-                        )
-                        return 2
-            if not seed_users:
-                ingest_logger.error(
-                    "No seeds provided. Specify at least --user or --nickname."
-                )
-                return 2
-            depth = ingest_table.get("depth", args.depth)
-            if args.max_games is not None:
-                max_games_per_user = args.max_games
-            else:
-                max_games_per_user = ingest_table.get("max_games_per_user")
-            config_only_newer = ingest_table.get("only_newer_games")
-            if args.only_newer_games is not True:
-                only_newer_games = args.only_newer_games
-            elif isinstance(config_only_newer, bool):
-                only_newer_games = config_only_newer
-            else:
-                only_newer_games = args.only_newer_games
-            manager = IngestionManager(
-                client,
-                store,
-                max_games_per_user=max_games_per_user,
-                only_newer_games=only_newer_games,
-                parquet_exporter=parquet_exporter,
-                progress_callback=report,
-            )
-            try:
-                manager.ingest_from_seeds(seed_users, depth=depth)
-            finally:
-                if parquet_exporter is not None:
-                    try:
-                        parquet_exporter.close()
-                    except Exception:
-                        pass
-                client.close()
-            return 0
-
-        matching_mode = args.mode
-        if args.team_mode is not None:
-            matching_team_mode = args.team_mode
-        else:
-            matching_team_mode = MATCHING_MODE_TEAM_MODE_DEFAULTS.get(matching_mode)
-            if matching_team_mode is None:
-                logger.error(
-                    "Matching team mode could not be inferred for matching mode %s. "
-                    "Please specify --team-mode.",
-                    matching_mode,
-                )
-                return 2
-
-        try:
-            patch_spec = parse_patch_spec(getattr(args, "patch", None))
-        except argparse.ArgumentTypeError as exc:
-            logger.error("%s", exc)
-            return 2
-
-        try:
-            start_dtm_from, start_dtm_to = parse_time_window(
-                getattr(args, "start_dtm", None),
-                getattr(args, "end_dtm", None),
-                getattr(args, "time_range", None),
-            )
-        except argparse.ArgumentTypeError as exc:
-            logger.error("%s", exc)
-            return 2
-
-        season_override: Optional[int] = None
-        version_major: Optional[int] = None
-        if patch_spec:
-            if patch_spec.latest:
-                try:
-                    season_override, version_major = resolve_patch_spec(
-                        patch_spec,
-                        store,
-                        server_name=args.server,
-                        matching_mode=matching_mode,
-                        matching_team_mode=matching_team_mode,
-                    )
-                except argparse.ArgumentTypeError as exc:
-                    logger.error("%s", exc)
-                    return 2
-            else:
-                season_override, version_major = (
-                    patch_spec.season_id,
-                    patch_spec.version_major,
-                )
-                if (
-                    args.season is not None
-                    and season_override is not None
-                    and args.season != season_override
-                ):
-                    logger.error(
-                        "Patch season %s conflicts with --season %s",
-                        season_override,
-                        args.season,
-                    )
-                    return 2
-
-        if season_override is not None:
-            season_id = season_override
-        elif args.season is not None:
-            season_id = args.season
-        else:
-            ranked_mode = MATCHING_MODE_ALIASES["ranked"]
-            if matching_mode == ranked_mode:
-                with store.cursor() as cur:
-                    cur.execute("SELECT MAX(season_id) AS max_season FROM matches")
-                    row = cur.fetchone()
-                max_season = row["max_season"] if row is not None else None
-                if max_season is None:
-                    logger.error(
-                        "No matches found in the database; cannot infer default "
-                        "season for ranked mode. Please specify --season."
-                    )
-                    return 2
-                season_id = max_season
-            else:
-                season_id = 0
-
-        context = {
-            "season_id": season_id,
-            "server_name": args.server,
-            "matching_mode": matching_mode,
-            "matching_team_mode": matching_team_mode,
-            "start_dtm_from": start_dtm_from,
-            "start_dtm_to": start_dtm_to,
-            "version_major": version_major,
-        }
-        if args.command == "character":
-            rows = character_rankings(store, **context)
-        elif args.command == "equipment":
-            rows = equipment_rankings(store, min_samples=args.min_samples, **context)
-        elif args.command == "bot":
-            rows = bot_usage_statistics(store, min_matches=args.min_matches, **context)
-        elif args.command == "mmr":
-            rows = mmr_change_statistics(store, **context)
-        else:
-            raise ValueError(f"Unsupported command: {args.command}")
-        json.dump(rows, sys.stdout, indent=2)
-        sys.stdout.write("\n")
-        return 0
+            return _run_ingest(args, store, ingest_config)
+        if args.command == "stats":
+            return _run_stats(args, store)
+        raise ValueError(f"Unsupported command: {args.command}")
     finally:
         store.close()
 

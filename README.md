@@ -207,29 +207,34 @@ Run aggregations (outputs JSON to stdout):
 
 ```bash
 # Character rankings
-python -m er_stats.cli --db er.sqlite character \
+python -m er_stats.cli --db er.sqlite stats character \
   --season 25 --server NA --mode 3 --team-mode 1
 
 # Limit to a time window (ISO-8601 with timezone or relative presets like last:7d)
-python -m er_stats.cli --db er.sqlite character \
+python -m er_stats.cli --db er.sqlite stats character \
   --season 25 --server NA --mode 3 --team-mode 1 \
   --range last:7d
 
 # Equipment performance
-python -m er_stats.cli --db er.sqlite equipment \
+python -m er_stats.cli --db er.sqlite stats equipment \
   --season 25 --server NA --mode 3 --team-mode 1 --min-samples 5
 
 # Bot usage stats
-python -m er_stats.cli --db er.sqlite bot \
+python -m er_stats.cli --db er.sqlite stats bot \
   --season 25 --server NA --mode 3 --team-mode 1 --min-matches 3
 
 # MMR change stats
-python -m er_stats.cli --db er.sqlite mmr \
+python -m er_stats.cli --db er.sqlite stats mmr \
   --season 25 --server NA --mode 3 --team-mode 1
 
 # Filter by a specific patch (season + version_major) or the latest patch in the DB
-python -m er_stats.cli --db er.sqlite character \
+python -m er_stats.cli --db er.sqlite stats character \
   --server NA --mode 3 --team-mode 1 --patch latest
+
+# Team compositions (win/top rates; defaults to all servers when --server omitted)
+python -m er_stats.cli --db er.sqlite stats team \
+  --mode 3 --team-mode 3 --season 25 \
+  --top-n 3 --min-matches 5
 ```
 
 ## Data Model (SQLite)

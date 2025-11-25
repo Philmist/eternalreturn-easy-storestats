@@ -89,6 +89,7 @@ def test_cli_character_outputs_json(store, tmp_path, make_game, capsys):
         [
             "--db",
             store.path,
+            "stats",
             "character",
             "--season",
             "25",
@@ -166,6 +167,7 @@ def test_cli_character_aggregations_match_expected(store, make_game, capsys):
         [
             "--db",
             store.path,
+            "stats",
             "character",
             "--season",
             "25",
@@ -224,6 +226,7 @@ def test_cli_character_time_filter_via_args(store, make_game, capsys):
         [
             "--db",
             store.path,
+            "stats",
             "character",
             "--server",
             "NA",
@@ -274,6 +277,7 @@ def test_cli_patch_latest_picks_highest_version(store, make_game, capsys):
         [
             "--db",
             store.path,
+            "stats",
             "character",
             "--server",
             "NA",
@@ -296,6 +300,7 @@ def test_cli_patch_and_season_conflict_returns_error(store):
         [
             "--db",
             store.path,
+            "stats",
             "character",
             "--server",
             "NA",
@@ -317,6 +322,7 @@ def test_cli_range_conflicts_with_explicit_window(store):
         [
             "--db",
             store.path,
+            "stats",
             "character",
             "--server",
             "NA",
@@ -340,6 +346,7 @@ def test_cli_invalid_range_returns_error(store):
         [
             "--db",
             store.path,
+            "stats",
             "character",
             "--server",
             "NA",
@@ -407,6 +414,7 @@ def test_cli_equipment_aggregations_match_expected(store, make_game, capsys):
         [
             "--db",
             store.path,
+            "stats",
             "equipment",
             "--season",
             "25",
@@ -440,6 +448,7 @@ def test_cli_equipment_aggregations_match_expected(store, make_game, capsys):
         [
             "--db",
             store.path,
+            "stats",
             "equipment",
             "--season",
             "25",
@@ -528,6 +537,7 @@ def test_cli_bot_aggregations_match_expected(store, make_game, capsys):
         [
             "--db",
             store.path,
+            "stats",
             "bot",
             "--season",
             "25",
@@ -564,6 +574,7 @@ def test_cli_bot_aggregations_match_expected(store, make_game, capsys):
         [
             "--db",
             store.path,
+            "stats",
             "bot",
             "--season",
             "25",
@@ -630,6 +641,7 @@ def test_cli_mmr_aggregations_match_expected(store, make_game, capsys):
         [
             "--db",
             store.path,
+            "stats",
             "mmr",
             "--season",
             "25",
@@ -675,6 +687,7 @@ def test_cli_mode_accepts_string_and_infers_team_mode(store, make_game, capsys):
         [
             "--db",
             store.path,
+            "stats",
             "character",
             "--season",
             "25",
@@ -723,6 +736,7 @@ def test_cli_default_season_ranked_uses_latest(store, make_game, capsys):
         [
             "--db",
             store.path,
+            "stats",
             "mmr",
             "--server",
             "NA",
@@ -759,6 +773,7 @@ def test_cli_default_season_non_ranked_is_zero(store, make_game, capsys):
         [
             "--db",
             store.path,
+            "stats",
             "character",
             "--server",
             "NA",
@@ -770,6 +785,98 @@ def test_cli_default_season_non_ranked_is_zero(store, make_game, capsys):
     out = capsys.readouterr().out
     rows = json.loads(out)
     assert rows == []
+
+
+def test_cli_team_stats_include_all_servers_and_names(store, make_game, capsys):
+    def add_player(
+        game_id: int,
+        team_number: int,
+        user_num: int,
+        character_num: int,
+        game_rank: int,
+        server_name: str,
+    ) -> None:
+        game = make_game(
+            game_id=game_id,
+            user_num=user_num,
+            character_num=character_num,
+            game_rank=game_rank,
+            matching_team_mode=3,
+            server_name=server_name,
+        )
+        game["teamNumber"] = team_number
+        store.upsert_from_game_payload(game)
+
+    # Two games across different servers with the same composition (1,2,3).
+    add_player(1, 1, 101, 1, 1, "NA")
+    add_player(1, 1, 102, 2, 1, "NA")
+    add_player(1, 1, 103, 3, 1, "NA")
+    add_player(1, 2, 104, 4, 2, "NA")
+    add_player(1, 2, 105, 5, 2, "NA")
+    add_player(1, 2, 106, 6, 2, "NA")
+
+    add_player(2, 1, 201, 1, 2, "Asia")
+    add_player(2, 1, 202, 2, 2, "Asia")
+    add_player(2, 1, 203, 3, 2, "Asia")
+    add_player(2, 2, 204, 7, 1, "Asia")
+    add_player(2, 2, 205, 8, 1, "Asia")
+    add_player(2, 2, 206, 9, 1, "Asia")
+
+    store.refresh_characters(
+        [
+            {"characterCode": 1, "character": "Jackie"},
+            {"characterCode": 2, "character": "Aya"},
+            {"characterCode": 3, "character": "Hyunwoo"},
+        ]
+    )
+
+    code = run(
+        [
+            "--db",
+            store.path,
+            "stats",
+            "team",
+            "--mode",
+            "3",
+            "--team-mode",
+            "3",
+            "--season",
+            "25",
+            "--min-matches",
+            "2",
+        ]
+    )
+    assert code == 0
+    out = capsys.readouterr().out
+    rows = json.loads(out)
+    assert rows
+    comp = rows[0]
+    assert comp["team_signature"] == "1+2+3"
+    assert comp["matches"] == 2
+    assert comp["wins"] == 1
+    assert comp["top_finishes"] == 2
+    assert comp["character_names"] == ["Jackie", "Aya", "Hyunwoo"]
+
+    code = run(
+        [
+            "--db",
+            store.path,
+            "stats",
+            "team",
+            "--mode",
+            "3",
+            "--team-mode",
+            "3",
+            "--season",
+            "25",
+            "--min-matches",
+            "1",
+            "--no-include-names",
+        ]
+    )
+    assert code == 0
+    rows_no_names = json.loads(capsys.readouterr().out)
+    assert any("character_names" not in row for row in rows_no_names)
 
 
 def test_cli_ingest_only_newer_games_enabled_by_default(monkeypatch, store):

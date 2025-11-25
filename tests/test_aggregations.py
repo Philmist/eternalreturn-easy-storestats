@@ -5,6 +5,7 @@ from er_stats.aggregations import (
     character_rankings,
     equipment_rankings,
     mmr_change_statistics,
+    team_composition_statistics,
 )
 
 
@@ -289,3 +290,90 @@ def test_character_rankings_three_matches_team_of_three(store, make_game):
     assert hyunwoo["rank_2_3"] == 2
     assert hyunwoo["rank_4_6"] == 0
     assert hyunwoo["average_rank"] == pytest.approx(5 / 3)
+
+
+def test_team_composition_statistics_includes_all_servers(store, make_game):
+    def add_player(
+        game_id: int,
+        team_number: int,
+        user_num: int,
+        character_num: int,
+        game_rank: int,
+        server_name: str,
+    ) -> None:
+        game = make_game(
+            game_id=game_id,
+            user_num=user_num,
+            character_num=character_num,
+            game_rank=game_rank,
+            matching_team_mode=3,
+            server_name=server_name,
+        )
+        game["teamNumber"] = team_number
+        store.upsert_from_game_payload(game)
+
+    # Game 1 on NA: team A wins, team B loses.
+    add_player(1, 1, 101, 1, 1, "NA")
+    add_player(1, 1, 102, 2, 1, "NA")
+    add_player(1, 1, 103, 3, 1, "NA")
+    add_player(1, 2, 104, 4, 2, "NA")
+    add_player(1, 2, 105, 5, 2, "NA")
+    add_player(1, 2, 106, 6, 2, "NA")
+
+    # Game 2 on Asia: team A loses, team C wins.
+    add_player(2, 1, 201, 1, 2, "Asia")
+    add_player(2, 1, 202, 2, 2, "Asia")
+    add_player(2, 1, 203, 3, 2, "Asia")
+    add_player(2, 2, 204, 7, 1, "Asia")
+    add_player(2, 2, 205, 8, 1, "Asia")
+    add_player(2, 2, 206, 9, 1, "Asia")
+
+    store.refresh_characters(
+        [
+            {"characterCode": 1, "character": "Jackie"},
+            {"characterCode": 2, "character": "Aya"},
+            {"characterCode": 3, "character": "Hyunwoo"},
+            {"characterCode": 4, "character": "Fiora"},
+            {"characterCode": 5, "character": "Zahir"},
+            {"characterCode": 6, "character": "Hyejin"},
+            {"characterCode": 7, "character": "LiDailin"},
+            {"characterCode": 8, "character": "Isol"},
+            {"characterCode": 9, "character": "Xiukai"},
+        ]
+    )
+
+    rows = team_composition_statistics(
+        store,
+        season_id=25,
+        server_name=None,
+        matching_mode=3,
+        matching_team_mode=3,
+        top_n=3,
+        min_matches=2,
+    )
+    assert len(rows) == 1
+    comp = rows[0]
+    assert comp["team_signature"] == "1+2+3"
+    assert comp["character_nums"] == [1, 2, 3]
+    assert comp["character_names"] == ["Jackie", "Aya", "Hyunwoo"]
+    assert comp["matches"] == 2
+    assert comp["wins"] == 1
+    assert comp["top_finishes"] == 2
+    assert comp["win_rate"] == pytest.approx(0.5)
+    assert comp["top_rate"] == pytest.approx(1.0)
+    assert comp["average_rank"] == pytest.approx(1.5)
+
+    rows_no_names = team_composition_statistics(
+        store,
+        season_id=25,
+        server_name=None,
+        matching_mode=3,
+        matching_team_mode=3,
+        top_n=3,
+        min_matches=1,
+        include_names=False,
+        sort_by="avg-rank",
+    )
+    assert any(row["team_signature"] == "1+2+3" for row in rows_no_names)
+    for row in rows_no_names:
+        assert "character_names" not in row
