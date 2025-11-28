@@ -8,7 +8,7 @@ from collections import deque
 from typing import Callable, Iterable, Optional, Set
 
 from .api_client import EternalReturnAPIClient
-from .db import SQLiteStore, parse_start_time
+from .db import SQLiteStore, extract_uid, parse_start_time
 
 try:
     # Optional Parquet export; available when pyarrow is installed
@@ -50,19 +50,20 @@ class IngestionManager:
         else:
             logger.info(message)
 
-    def ingest_user(self, user_num: int) -> Set[int]:
+    def ingest_user(self, uid: str) -> Set[str]:
         """Ingest matches for a single user.
 
         Returns a set of newly discovered user numbers from the processed games.
         """
 
-        discovered: Set[int] = set()
+        uid = str(uid)
+        discovered: Set[str] = set()
         next_token: Optional[str] = None
         processed = 0
-        self._report(f"Fetching games for user {user_num}")
+        self._report(f"Fetching games for uid {uid}")
         cutoff: Optional[dt.datetime] = None
         if self.only_newer_games:
-            last_seen = self.store.get_user_last_seen(user_num)
+            last_seen = self.store.get_user_last_seen(uid)
             if last_seen:
                 try:
                     cutoff = dt.datetime.fromisoformat(last_seen)
@@ -71,7 +72,7 @@ class IngestionManager:
 
         stop_due_to_cutoff = False
         while True:
-            payload = self.client.fetch_user_games(user_num, next_token)
+            payload = self.client.fetch_user_games(uid, next_token)
             games = payload.get("userGames", [])
             for game in games:
                 if cutoff:
@@ -86,7 +87,7 @@ class IngestionManager:
                                 stop_due_to_cutoff = True
                                 self._report(
                                     "Encountered previously ingested game "
-                                    f"{game.get('gameId')} for user {user_num}; stopping early"
+                                    f"{game.get('gameId')} for uid {uid}; stopping early"
                                 )
                                 break
                 game_id = game.get("gameId")
@@ -95,7 +96,7 @@ class IngestionManager:
                 if self._parquet is not None:
                     self._parquet.write_from_game_payload(game)
                 processed += 1
-                self._report(f"Processed game {processed} for user {user_num}")
+                self._report(f"Processed game {processed} for uid {uid}")
                 if self.fetch_game_details:
                     discovered.update(
                         self._ingest_game_participants(
@@ -113,20 +114,20 @@ class IngestionManager:
                 break
         return discovered
 
-    def ingest_from_seeds(self, seeds: Iterable[int], *, depth: int = 1) -> None:
+    def ingest_from_seeds(self, seeds: Iterable[str], *, depth: int = 1) -> None:
         """Recursively ingest matches starting from the provided seed users."""
 
         queue = deque((seed, 0) for seed in seeds)
-        seen_users: Set[int] = set()
+        seen_users: Set[str] = set()
         while queue:
             self._report(f"Ingest queue left: {len(queue)} users")
-            user_num, current_depth = queue.popleft()
-            if user_num in seen_users:
+            uid, current_depth = queue.popleft()
+            if uid in seen_users:
                 continue
-            seen_users.add(user_num)
-            self._report(f"Ingesting user {user_num} at depth {current_depth}")
-            new_users = self.ingest_user(user_num)
-            self._report(f"Discovered {len(new_users)} new users from user {user_num}")
+            seen_users.add(uid)
+            self._report(f"Ingesting user {uid} at depth {current_depth}")
+            new_users = self.ingest_user(uid)
+            self._report(f"Discovered {len(new_users)} new users from user {uid}")
             if current_depth + 1 > depth:
                 continue
             for next_user in new_users:
@@ -135,7 +136,7 @@ class IngestionManager:
 
     def _ingest_game_participants(
         self, game_id: Optional[int], *, already_known: bool = False
-    ) -> Set[int]:
+    ) -> Set[str]:
         if not game_id or game_id in self._seen_games:
             return set()
         self._seen_games.add(game_id)
@@ -149,12 +150,14 @@ class IngestionManager:
                 return cached_participants
         payload = self.client.fetch_game_result(game_id)
         participants = payload.get("userGames", [])
-        discovered: Set[int] = set()
+        discovered: Set[str] = set()
         for participant in participants:
             self.store.upsert_from_game_payload(participant)
             if self._parquet is not None:
                 self._parquet.write_from_game_payload(participant)
-            discovered.add(participant.get("userNum"))
+            uid = extract_uid(participant)
+            if uid is not None:
+                discovered.add(uid)
         self._report(f"Fetched {len(participants)} participants for game {game_id}")
         return discovered
 

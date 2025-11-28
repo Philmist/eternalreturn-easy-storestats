@@ -16,7 +16,7 @@ class _FakeClient:
         self.participants = participants
 
     def fetch_user_games(
-        self, user_num: int, next_token: Optional[str] = None
+        self, uid: str, next_token: Optional[str] = None
     ) -> Dict[str, Any]:
         if next_token is None:
             return self.pages[0]
@@ -33,15 +33,15 @@ class _FakeClient:
 
 
 def _make_pages(make_game):
-    g1 = make_game(game_id=1, user_num=100)
-    g2 = make_game(game_id=2, user_num=100)
+    g1 = make_game(game_id=1, uid="100")
+    g2 = make_game(game_id=2, uid="100")
     pages = [
         {"userGames": [g1], "next": "tok"},
         {"userGames": [g2]},
     ]
-    p1_a = make_game(game_id=1, user_num=200)
-    p1_b = make_game(game_id=1, user_num=201)
-    p2_a = make_game(game_id=2, user_num=300)
+    p1_a = make_game(game_id=1, uid="200")
+    p1_b = make_game(game_id=1, uid="201")
+    p2_a = make_game(game_id=2, uid="300")
     participants = {
         1: {"userGames": [p1_a, p1_b]},
         2: {"userGames": [p2_a]},
@@ -70,18 +70,18 @@ def test_cli_ingest_with_parquet_dir(monkeypatch, store, tmp_path, make_game):
 
     out_dir = tmp_path / "out_parquet"
     args = [
-        "--db",
-        store.path,
-        "ingest",
-        "--base-url",
-        "https://example.invalid",
-        "--user",
-        "12345",
-        "--depth",
-        "1",
-        "--parquet-dir",
-        str(out_dir),
-        "--min-interval",
+            "--db",
+            store.path,
+            "ingest",
+            "--base-url",
+            "https://example.invalid",
+            "--uid",
+            "12345",
+            "--depth",
+            "1",
+            "--parquet-dir",
+            str(out_dir),
+            "--min-interval",
         "0.0",
     ]
 

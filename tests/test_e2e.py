@@ -17,7 +17,7 @@ class FakeClient:
         self.participants = participants
 
     def fetch_user_games(
-        self, user_num: int, next_token: Optional[str] = None
+        self, uid: str, next_token: Optional[str] = None
     ) -> Dict[str, Any]:
         if next_token is None:
             return self.pages[0]
@@ -31,15 +31,15 @@ class FakeClient:
 
 
 def _prepare_pages(make_game):
-    g1 = make_game(game_id=1, user_num=100)
-    g2 = make_game(game_id=2, user_num=100)
+    g1 = make_game(game_id=1, uid="100")
+    g2 = make_game(game_id=2, uid="100")
     pages = [
         {"userGames": [g1], "next": "tok"},
         {"userGames": [g2]},
     ]
-    p1_a = make_game(game_id=1, user_num=200)
-    p1_b = make_game(game_id=1, user_num=201)
-    p2_a = make_game(game_id=2, user_num=300)
+    p1_a = make_game(game_id=1, uid="200")
+    p1_b = make_game(game_id=1, uid="201")
+    p2_a = make_game(game_id=2, uid="300")
     participants = {
         1: {"userGames": [p1_a, p1_b]},
         2: {"userGames": [p2_a]},
@@ -55,10 +55,10 @@ def test_ingestion_manager_writes_sqlite_and_parquet(store, tmp_path, make_game)
     exporter = ParquetExporter(out_dir)
     manager = IngestionManager(client, store, parquet_exporter=exporter)
 
-    discovered = manager.ingest_user(100)
+    discovered = manager.ingest_user("100")
     # Ensure buffered Parquet rows are flushed
     exporter.close()
-    assert {200, 201, 300}.issubset(discovered)
+    assert {"200", "201", "300"}.issubset(discovered)
 
     cur = store.connection.execute("SELECT COUNT(*) FROM matches")
     assert cur.fetchone()[0] == 2
@@ -87,7 +87,7 @@ def test_ingestion_manager_writes_sqlite_and_parquet(store, tmp_path, make_game)
     # Validate expected columns exist in participants (no partition columns inside file)
     t = pq.read_table(participants_files[0], schema=schema)
     cols = set(t.column_names)
-    assert {"game_id", "user_num", "character_num", "game_rank"}.issubset(cols)
+    assert {"game_id", "uid", "character_num", "game_rank"}.issubset(cols)
 
     # Verify hive partition directories (season/server/mode/date), and no matching_team_mode
     any_participant = participants_files[0]

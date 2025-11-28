@@ -67,7 +67,7 @@ def character_rankings(
     )
     query = f"""
         WITH filtered AS (
-            SELECT ums.game_id, ums.user_num, ums.character_num, ums.game_rank
+            SELECT ums.game_id, ums.uid, ums.character_num, ums.game_rank
             FROM user_match_stats AS ums
             JOIN matches AS m ON m.game_id = ums.game_id
             {where_clause}
@@ -119,7 +119,7 @@ def equipment_rankings(
     params["min_samples"] = min_samples
     query = f"""
         WITH filtered AS (
-            SELECT ums.game_id, ums.user_num, ums.game_rank
+            SELECT ums.game_id, ums.uid, ums.game_rank
             FROM user_match_stats AS ums
             JOIN matches AS m ON m.game_id = ums.game_id
             {where_clause}
@@ -134,7 +134,7 @@ def equipment_rankings(
                AVG(e.grade) AS average_grade
         FROM filtered AS f
         JOIN equipment AS e
-          ON e.game_id = f.game_id AND e.user_num = f.user_num
+          ON e.game_id = f.game_id AND e.uid = f.uid
         LEFT JOIN items AS i
           ON i.item_code = e.item_id
         GROUP BY e.item_id

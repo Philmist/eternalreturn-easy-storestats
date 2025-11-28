@@ -106,12 +106,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     ingest_parser.add_argument("--api-key", help="API key for authentication")
     ingest_parser.add_argument(
-        "--user",
-        dest="users",
-        type=int,
+        "--uid",
+        dest="uids",
+        type=str,
         action="append",
         required=False,
-        help="Seed user number. Specify multiple times for several seeds.",
+        help="Seed user UID (userId). Specify multiple times for several seeds.",
     )
     ingest_parser.add_argument(
         "--nickname",
@@ -119,7 +119,7 @@ def _build_parser() -> argparse.ArgumentParser:
         type=str,
         action="append",
         required=False,
-        help="Public nickname to resolve to userNum. Repeatable.",
+        help="Public nickname to resolve to uid. Repeatable.",
     )
     ingest_parser.add_argument(
         "--depth", type=int, default=1, help="Recursive depth for user discovery"
@@ -578,9 +578,16 @@ def _run_ingest(
             parquet_exporter = ParquetExporter(parquet_dir_value)
         except Exception as e:
             ingest_logger.warning("Parquet export disabled: %s", e)
-    seed_users = list(seeds_cfg.get("users", []))
-    if args.users:
-        seed_users.extend(args.users)
+    seed_uids: list[str] = []
+    seed_uids_raw = seeds_cfg.get("uids", [])
+    if isinstance(seed_uids_raw, (list, tuple, set)):
+        seed_uids.extend(str(v) for v in seed_uids_raw)
+    elif seed_uids_raw:
+        seed_uids.append(str(seed_uids_raw))
+    # Backward compatibility: allow legacy "users" key but treat as strings
+    seed_uids.extend(str(v) for v in seeds_cfg.get("users", []))
+    if args.uids:
+        seed_uids.extend(args.uids)
     nickname_sources = list(seeds_cfg.get("nicknames", []))
     if args.nicknames:
         nickname_sources.extend(args.nicknames)
@@ -590,17 +597,17 @@ def _run_ingest(
             try:
                 payload = client.fetch_user_by_nickname(nick)
                 user = payload.get("user") or {}
-                user_num = user.get("userNum")
-                if not isinstance(user_num, int):
+                uid_value = user.get("userId") or user.get("uid")
+                if not isinstance(uid_value, str) or not uid_value:
                     raise ValueError(
-                        f"Nickname '{nick}' did not resolve to a valid userNum"
+                        f"Nickname '{nick}' did not resolve to a valid uid"
                     )
-                seed_users.append(user_num)
+                seed_uids.append(uid_value)
             except Exception as e:
                 ingest_logger.error("Failed to resolve nickname '%s': %s", nick, e)
                 return 2
-    if not seed_users:
-        ingest_logger.error("No seeds provided. Specify at least --user or --nickname.")
+    if not seed_uids:
+        ingest_logger.error("No seeds provided. Specify at least --uid or --nickname.")
         return 2
     depth = ingest_table.get("depth", args.depth)
     if args.max_games is not None:
@@ -623,7 +630,7 @@ def _run_ingest(
         progress_callback=report,
     )
     try:
-        manager.ingest_from_seeds(seed_users, depth=depth)
+        manager.ingest_from_seeds(seed_uids, depth=depth)
     finally:
         if parquet_exporter is not None:
             try:

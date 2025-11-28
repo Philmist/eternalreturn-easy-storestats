@@ -14,13 +14,13 @@ def test_aggregations_basic(store, make_game):
 
     # Two users, two characters, different ranks and equipment
     store.upsert_from_game_payload(
-        make_game(game_id=1, user_num=10, character_num=1, game_rank=2)
+        make_game(game_id=1, uid=10, character_num=1, game_rank=2)
     )
     store.upsert_from_game_payload(
-        make_game(game_id=2, user_num=11, character_num=1, game_rank=4)
+        make_game(game_id=2, uid=11, character_num=1, game_rank=4)
     )
     store.upsert_from_game_payload(
-        make_game(game_id=3, user_num=12, character_num=2, game_rank=1)
+        make_game(game_id=3, uid=12, character_num=2, game_rank=1)
     )
 
     store.refresh_characters(
@@ -51,7 +51,7 @@ def test_aggregations_basic(store, make_game):
 
     # Flag a user as mlbot and ensure it propagates
     store.upsert_from_game_payload(
-        make_game(game_id=4, user_num=13, character_num=2, game_rank=3, mlbot=True)
+        make_game(game_id=4, uid=13, character_num=2, game_rank=3, mlbot=True)
     )
     bots2 = bot_usage_statistics(store, min_matches=1, **ctx)
     assert any(row["ml_bot"] == 1 for row in bots2)
@@ -70,7 +70,7 @@ def test_bot_usage_statistics_min_matches_and_context(store, make_game):
 
     def add_player(
         game_id: int,
-        user_num: int,
+        uid: int,
         character_num: int,
         game_rank: int,
         team_number: int,
@@ -80,7 +80,7 @@ def test_bot_usage_statistics_min_matches_and_context(store, make_game):
     ) -> None:
         game = make_game(
             game_id=game_id,
-            user_num=user_num,
+            uid=uid,
             character_num=character_num,
             game_rank=game_rank,
             matching_mode=2,
@@ -166,13 +166,13 @@ def test_character_rankings_filters_by_time_window(store, make_game):
     ctx = dict(season_id=25, server_name="NA", matching_mode=3, matching_team_mode=1)
 
     early_game = make_game(
-        game_id=101, user_num=1, character_num=1, game_rank=1, season_id=25
+        game_id=101, uid=1, character_num=1, game_rank=1, season_id=25
     )
     early_game["startDtm"] = "2025-11-24T23:00:00+09:00"  # 14:00Z
     store.upsert_from_game_payload(early_game)
 
     later_game = make_game(
-        game_id=102, user_num=2, character_num=2, game_rank=2, season_id=25
+        game_id=102, uid=2, character_num=2, game_rank=2, season_id=25
     )
     later_game["startDtm"] = "2025-11-24T15:00:00+00:00"  # 15:00Z
     store.upsert_from_game_payload(later_game)
@@ -191,15 +191,11 @@ def test_character_rankings_filters_by_time_window(store, make_game):
 def test_character_rankings_filters_by_version_major(store, make_game):
     ctx = dict(season_id=25, server_name="NA", matching_mode=3, matching_team_mode=1)
 
-    game_v1 = make_game(
-        game_id=201, user_num=3, character_num=3, game_rank=1, season_id=25
-    )
+    game_v1 = make_game(game_id=201, uid=3, character_num=3, game_rank=1, season_id=25)
     game_v1["versionMajor"] = 1
     store.upsert_from_game_payload(game_v1)
 
-    game_v2 = make_game(
-        game_id=202, user_num=4, character_num=4, game_rank=2, season_id=25
-    )
+    game_v2 = make_game(game_id=202, uid=4, character_num=4, game_rank=2, season_id=25)
     game_v2["versionMajor"] = 2
     store.upsert_from_game_payload(game_v2)
 
@@ -220,14 +216,14 @@ def test_character_rankings_three_matches_team_of_three(store, make_game):
 
     def add_player(
         game_id: int,
-        user_num: int,
+        uid: int,
         character_num: int,
         game_rank: int,
         team_number: int,
     ) -> None:
         game = make_game(
             game_id=game_id,
-            user_num=user_num,
+            uid=uid,
             character_num=character_num,
             game_rank=game_rank,
             matching_team_mode=3,
@@ -296,14 +292,14 @@ def test_team_composition_statistics_includes_all_servers(store, make_game):
     def add_player(
         game_id: int,
         team_number: int,
-        user_num: int,
+        uid: int,
         character_num: int,
         game_rank: int,
         server_name: str,
     ) -> None:
         game = make_game(
             game_id=game_id,
-            user_num=user_num,
+            uid=uid,
             character_num=character_num,
             game_rank=game_rank,
             matching_team_mode=3,

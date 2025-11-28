@@ -40,8 +40,8 @@ def test_setup_and_upsert_roundtrip(store, make_game):
     game_updated = {**game, "gameRank": 1, "mmrGain": 20}
     store.upsert_from_game_payload(game_updated)
     row = store.connection.execute(
-        "SELECT game_rank, mmr_gain FROM user_match_stats WHERE game_id=? AND user_num=?",
-        (1, 100),
+        "SELECT game_rank, mmr_gain FROM user_match_stats WHERE game_id=? AND uid=?",
+        (1, "100"),
     ).fetchone()
     assert row[0] == 1
     assert row[1] == 20
@@ -61,17 +61,17 @@ def test_store_mlbot(store, make_game):
     store.upsert_from_game_payload(game)
 
     cur = store.connection.execute(
-        "SELECT COUNT(*) FROM users WHERE user_num = ? AND ml_bot = 1", (bot_user_num,)
+        "SELECT COUNT(*) FROM users WHERE uid = ? AND ml_bot = 1", (str(bot_user_num),)
     )
     assert cur.fetchone()[0] == 1
 
     cur = store.connection.execute(
-        "SELECT COUNT(*) FROM users WHERE user_num = ? AND ml_bot = 0", (pc_user_num,)
+        "SELECT COUNT(*) FROM users WHERE uid = ? AND ml_bot = 0", (str(pc_user_num),)
     )
     assert cur.fetchone()[0] == 1
 
     cur = store.connection.execute(
-        "SELECT COUNT(*) FROM users WHERE user_num = ? AND ml_bot = 0", (old_user_num,)
+        "SELECT COUNT(*) FROM users WHERE uid = ? AND ml_bot = 0", (str(old_user_num),)
     )
     assert cur.fetchone()[0] == 1
 
