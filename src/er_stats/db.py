@@ -11,6 +11,18 @@ from typing import Any, Dict, Iterable, Iterator, Optional, Set
 ISO_FORMAT = "%Y-%m-%dT%H:%M:%S%z"
 
 
+def extract_uid(payload: Dict[str, Any]) -> Optional[str]:
+    """Return the UID for a user payload, falling back to nickname when absent."""
+
+    uid = payload.get("uid") or payload.get("userId") or payload.get("user_id")
+    if isinstance(uid, str) and uid:
+        return uid
+    nickname = payload.get("nickname")
+    if isinstance(nickname, str) and nickname:
+        return nickname
+    return None
+
+
 def parse_start_time(value: Optional[str]) -> Optional[str]:
     """Convert the API timestamp into ISO-8601 with colon separator."""
 
@@ -76,7 +88,7 @@ class SQLiteStore:
             cur.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS users (
-                    user_num INTEGER PRIMARY KEY,
+                    uid TEXT PRIMARY KEY,
                     nickname TEXT,
                     first_seen TEXT,
                     last_seen TEXT,
@@ -101,7 +113,7 @@ class SQLiteStore:
 
                 CREATE TABLE IF NOT EXISTS user_match_stats (
                     game_id INTEGER NOT NULL,
-                    user_num INTEGER NOT NULL,
+                    uid TEXT NOT NULL,
                     character_num INTEGER,
                     skin_code INTEGER,
                     game_rank INTEGER,
@@ -121,48 +133,49 @@ class SQLiteStore:
                     premade INTEGER,
                     language TEXT,
                     ml_bot INTEGER,
-                    PRIMARY KEY (game_id, user_num),
-                    FOREIGN KEY (game_id) REFERENCES matches(game_id) ON DELETE CASCADE
+                    PRIMARY KEY (game_id, uid),
+                    FOREIGN KEY (game_id) REFERENCES matches(game_id) ON DELETE CASCADE,
+                    FOREIGN KEY (uid) REFERENCES users(uid) ON DELETE CASCADE
                 );
 
                 CREATE TABLE IF NOT EXISTS equipment (
                     game_id INTEGER NOT NULL,
-                    user_num INTEGER NOT NULL,
+                    uid TEXT NOT NULL,
                     slot INTEGER NOT NULL,
                     item_id INTEGER,
                     grade INTEGER,
-                    PRIMARY KEY (game_id, user_num, slot),
-                    FOREIGN KEY (game_id, user_num) REFERENCES user_match_stats(game_id, user_num)
+                    PRIMARY KEY (game_id, uid, slot),
+                    FOREIGN KEY (game_id, uid) REFERENCES user_match_stats(game_id, uid)
                         ON DELETE CASCADE
                 );
 
                 CREATE TABLE IF NOT EXISTS mastery_levels (
                     game_id INTEGER NOT NULL,
-                    user_num INTEGER NOT NULL,
+                    uid TEXT NOT NULL,
                     mastery_id INTEGER NOT NULL,
                     level INTEGER,
-                    PRIMARY KEY (game_id, user_num, mastery_id),
-                    FOREIGN KEY (game_id, user_num) REFERENCES user_match_stats(game_id, user_num)
+                    PRIMARY KEY (game_id, uid, mastery_id),
+                    FOREIGN KEY (game_id, uid) REFERENCES user_match_stats(game_id, uid)
                         ON DELETE CASCADE
                 );
 
                 CREATE TABLE IF NOT EXISTS skill_levels (
                     game_id INTEGER NOT NULL,
-                    user_num INTEGER NOT NULL,
+                    uid TEXT NOT NULL,
                     skill_code INTEGER NOT NULL,
                     level INTEGER,
-                    PRIMARY KEY (game_id, user_num, skill_code),
-                    FOREIGN KEY (game_id, user_num) REFERENCES user_match_stats(game_id, user_num)
+                    PRIMARY KEY (game_id, uid, skill_code),
+                    FOREIGN KEY (game_id, uid) REFERENCES user_match_stats(game_id, uid)
                         ON DELETE CASCADE
                 );
 
                 CREATE TABLE IF NOT EXISTS skill_orders (
                     game_id INTEGER NOT NULL,
-                    user_num INTEGER NOT NULL,
+                    uid TEXT NOT NULL,
                     sequence INTEGER NOT NULL,
                     skill_code INTEGER,
-                    PRIMARY KEY (game_id, user_num, sequence),
-                    FOREIGN KEY (game_id, user_num) REFERENCES user_match_stats(game_id, user_num)
+                    PRIMARY KEY (game_id, uid, sequence),
+                    FOREIGN KEY (game_id, uid) REFERENCES user_match_stats(game_id, uid)
                         ON DELETE CASCADE
                 );
 
@@ -190,13 +203,15 @@ class SQLiteStore:
                     ON user_match_stats (character_num, game_rank);
 
                 CREATE INDEX IF NOT EXISTS idx_user_match_user
-                    ON user_match_stats (user_num);
+                    ON user_match_stats (uid);
                 """
             )
         self.connection.commit()
 
     def upsert_user(self, game: Dict[str, Any]) -> None:
-        user_num = game.get("userNum")
+        uid = extract_uid(game)
+        if uid is None:
+            return
         nickname = game.get("nickname")
         start_time = parse_start_time(game.get("startDtm"))
         mmr_after = game.get("mmrAfter")
@@ -206,11 +221,11 @@ class SQLiteStore:
             cur.execute(
                 """
                 INSERT INTO users (
-                    user_num, nickname, first_seen, last_seen, last_mmr, ml_bot, last_language
+                    uid, nickname, first_seen, last_seen, last_mmr, ml_bot, last_language
                 ) VALUES (
-                    :user_num, :nickname, :first_seen, :last_seen, :last_mmr, :ml_bot, :last_language
+                    :uid, :nickname, :first_seen, :last_seen, :last_mmr, :ml_bot, :last_language
                 )
-                ON CONFLICT(user_num) DO UPDATE SET
+                ON CONFLICT(uid) DO UPDATE SET
                     nickname=excluded.nickname,
                     last_seen=MAX(users.last_seen, excluded.last_seen),
                     last_mmr=excluded.last_mmr,
@@ -220,7 +235,7 @@ class SQLiteStore:
                     excluded.last_seen > users.last_seen
                 """,
                 {
-                    "user_num": user_num,
+                    "uid": uid,
                     "nickname": nickname,
                     "first_seen": start_time,
                     "last_seen": start_time,
@@ -277,9 +292,12 @@ class SQLiteStore:
         self.connection.commit()
 
     def upsert_user_match_stats(self, game: Dict[str, Any]) -> None:
+        uid = extract_uid(game)
+        if uid is None:
+            return
         payload = {
             "game_id": game.get("gameId"),
-            "user_num": game.get("userNum"),
+            "uid": uid,
             "character_num": game.get("characterNum"),
             "skin_code": game.get("skinCode"),
             "game_rank": game.get("gameRank"),
@@ -304,19 +322,19 @@ class SQLiteStore:
             cur.execute(
                 """
                 INSERT INTO user_match_stats (
-                    game_id, user_num, character_num, skin_code, game_rank,
+                    game_id, uid, character_num, skin_code, game_rank,
                     player_kill, player_assistant, monster_kill, mmr_after,
                     mmr_gain, mmr_loss_entry_cost, victory, play_time,
                     damage_to_player, character_level, best_weapon,
                     best_weapon_level, team_number, premade, language, ml_bot
                 ) VALUES (
-                    :game_id, :user_num, :character_num, :skin_code, :game_rank,
+                    :game_id, :uid, :character_num, :skin_code, :game_rank,
                     :player_kill, :player_assistant, :monster_kill, :mmr_after,
                     :mmr_gain, :mmr_loss_entry_cost, :victory, :play_time,
                     :damage_to_player, :character_level, :best_weapon,
                     :best_weapon_level, :team_number, :premade, :language, :ml_bot
                 )
-                ON CONFLICT(game_id, user_num) DO UPDATE SET
+                ON CONFLICT(game_id, uid) DO UPDATE SET
                     character_num=excluded.character_num,
                     skin_code=excluded.skin_code,
                     game_rank=excluded.game_rank,
@@ -342,24 +360,25 @@ class SQLiteStore:
         self.connection.commit()
 
     def replace_equipment(self, game: Dict[str, Any]) -> None:
+        uid = extract_uid(game)
+        if uid is None:
+            return
         game_id = game.get("gameId")
-        user_num = game.get("userNum")
         equipment = game.get("equipment") or {}
         grades = game.get("equipmentGrade") or {}
         with self.cursor() as cur:
             cur.execute(
-                "DELETE FROM equipment WHERE game_id=? AND user_num=?",
-                (game_id, user_num),
+                "DELETE FROM equipment WHERE game_id=? AND uid=?", (game_id, uid)
             )
             for slot_str, item_id in equipment.items():
                 slot = int(slot_str)
                 grade = grades.get(slot_str)
                 cur.execute(
                     """
-                    INSERT INTO equipment (game_id, user_num, slot, item_id, grade)
+                    INSERT INTO equipment (game_id, uid, slot, item_id, grade)
                     VALUES (?, ?, ?, ?, ?)
                     """,
-                    (game_id, user_num, slot, item_id, grade),
+                    (game_id, uid, slot, item_id, grade),
                 )
         self.connection.commit()
 
@@ -368,61 +387,64 @@ class SQLiteStore:
         if not mastery_levels:
             return
         game_id = game.get("gameId")
-        user_num = game.get("userNum")
+        uid = extract_uid(game)
+        if uid is None:
+            return
         with self.cursor() as cur:
             cur.execute(
-                "DELETE FROM mastery_levels WHERE game_id=? AND user_num=?",
-                (game_id, user_num),
+                "DELETE FROM mastery_levels WHERE game_id=? AND uid=?", (game_id, uid)
             )
             for mastery_id, level in mastery_levels.items():
                 cur.execute(
                     """
-                    INSERT INTO mastery_levels (game_id, user_num, mastery_id, level)
+                    INSERT INTO mastery_levels (game_id, uid, mastery_id, level)
                     VALUES (?, ?, ?, ?)
                     """,
-                    (game_id, user_num, int(mastery_id), level),
+                    (game_id, uid, int(mastery_id), level),
                 )
         self.connection.commit()
 
     def replace_skill_levels(self, game: Dict[str, Any]) -> None:
         skill_levels = game.get("skillLevelInfo") or {}
         game_id = game.get("gameId")
-        user_num = game.get("userNum")
+        uid = extract_uid(game)
+        if uid is None:
+            return
         if not skill_levels:
             return
         with self.cursor() as cur:
             cur.execute(
-                "DELETE FROM skill_levels WHERE game_id=? AND user_num=?",
-                (game_id, user_num),
+                "DELETE FROM skill_levels WHERE game_id=? AND uid=?", (game_id, uid)
             )
             for code, level in skill_levels.items():
                 cur.execute(
                     """
-                    INSERT INTO skill_levels (game_id, user_num, skill_code, level)
+                    INSERT INTO skill_levels (game_id, uid, skill_code, level)
                     VALUES (?, ?, ?, ?)
                     """,
-                    (game_id, user_num, int(code), level),
+                    (game_id, uid, int(code), level),
                 )
         self.connection.commit()
 
     def replace_skill_orders(self, game: Dict[str, Any]) -> None:
         skill_orders = game.get("skillOrderInfo") or {}
         game_id = game.get("gameId")
-        user_num = game.get("userNum")
+        uid = extract_uid(game)
+        if uid is None:
+            return
         if not skill_orders:
             return
         with self.cursor() as cur:
             cur.execute(
-                "DELETE FROM skill_orders WHERE game_id=? AND user_num=?",
-                (game_id, user_num),
+                "DELETE FROM skill_orders WHERE game_id=? AND uid=?", (game_id, uid)
             )
             for sequence, skill_code in skill_orders.items():
                 cur.execute(
                     """
-                    INSERT INTO skill_orders (game_id, user_num, sequence, skill_code)
+                    INSERT INTO skill_orders (game_id, uid, sequence, skill_code)
                     VALUES (?, ?, ?, ?)
                     """,
-                    (game_id, user_num, int(sequence), skill_code),
+                    (game_id, uid, int(sequence), skill_code),
                 )
         self.connection.commit()
 
@@ -532,22 +554,19 @@ class SQLiteStore:
             cur.execute("SELECT 1 FROM matches WHERE game_id=?", (game_id,))
             return cur.fetchone() is not None
 
-    def get_user_last_seen(self, user_num: int) -> Optional[str]:
+    def get_user_last_seen(self, uid: str) -> Optional[str]:
         with self.cursor() as cur:
-            cur.execute("SELECT last_seen FROM users WHERE user_num=?", (user_num,))
+            cur.execute("SELECT last_seen FROM users WHERE uid=?", (uid,))
             row = cur.fetchone()
             return row["last_seen"] if row else None
 
-    def get_participants_for_game(self, game_id: int) -> Set[int]:
+    def get_participants_for_game(self, game_id: int) -> Set[str]:
         with self.cursor() as cur:
-            cur.execute(
-                "SELECT user_num FROM user_match_stats WHERE game_id=?",
-                (game_id,),
-            )
-            return {row["user_num"] for row in cur.fetchall()}
+            cur.execute("SELECT uid FROM user_match_stats WHERE game_id=?", (game_id,))
+            return {row["uid"] for row in cur.fetchall()}
 
     def transaction(self) -> sqlite3.Connection:
         return self.connection
 
 
-__all__ = ["SQLiteStore"]
+__all__ = ["SQLiteStore", "extract_uid", "parse_start_time"]

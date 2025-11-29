@@ -13,7 +13,7 @@ class FakeClient:
         self.fetch_game_result_calls: list[int] = []
 
     def fetch_user_games(
-        self, user_num: int, next_token: Optional[str] = None
+        self, uid: str, next_token: Optional[str] = None
     ) -> Dict[str, Any]:
         self.fetch_user_games_calls.append(next_token)
         if next_token is None:
@@ -48,10 +48,10 @@ def test_ingest_user_and_participants(store, make_game):
         client, store, max_games_per_user=None, fetch_game_details=True
     )
 
-    discovered = manager.ingest_user(100)
+    discovered = manager.ingest_user("100")
 
     # Discovered users from participants
-    assert {200, 201, 300}.issubset(discovered)
+    assert {"200", "201", "300"}.issubset(discovered)
 
     # Data persisted for seed and participants
     count = store.connection.execute(
@@ -71,9 +71,9 @@ def test_ingest_skips_known_game_details(store, make_game):
     client = FakeClient(pages=[{"userGames": [existing]}], participants={})
     manager = IngestionManager(client, store, fetch_game_details=True)
 
-    discovered = manager.ingest_user(100)
+    discovered = manager.ingest_user("100")
 
-    assert {200, 201}.issubset(discovered)
+    assert {"200", "201"}.issubset(discovered)
     assert client.fetch_game_result_calls == []
 
 
@@ -101,7 +101,7 @@ def test_ingest_only_newer_games_breaks_at_cutoff(store, make_game):
         only_newer_games=True,
     )
 
-    manager.ingest_user(100)
+    manager.ingest_user("100")
 
     # Only the first page should be fetched and only the newer game processed
     assert client.fetch_user_games_calls == [None]
@@ -132,7 +132,7 @@ def test_ingest_includes_older_games_when_cutoff_disabled(store, make_game):
         only_newer_games=False,
     )
 
-    manager.ingest_user(100)
+    manager.ingest_user("100")
 
     # The paginator should continue despite encountering a known game.
     assert client.fetch_user_games_calls == [None, "tok"]

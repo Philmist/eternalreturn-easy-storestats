@@ -17,7 +17,7 @@ from collections import defaultdict
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from .db import parse_start_time
+from .db import extract_uid, parse_start_time
 
 # Fixed schemas to ensure consistent types across files
 MATCH_SCHEMA = pa.schema(
@@ -35,7 +35,7 @@ MATCH_SCHEMA = pa.schema(
 PARTICIPANT_SCHEMA = pa.schema(
     [
         pa.field("game_id", pa.int64()),
-        pa.field("user_num", pa.int64()),
+        pa.field("uid", pa.string()),
         pa.field("character_num", pa.int64()),
         pa.field("skin_code", pa.int64()),
         pa.field("game_rank", pa.int64()),
@@ -193,6 +193,15 @@ def _safe_float(value: Any) -> Optional[float]:
         return None
 
 
+def _safe_str(value: Any) -> Optional[str]:
+    try:
+        if value is None:
+            return None
+        return str(value)
+    except Exception:
+        return None
+
+
 def _safe_list_int(value: Any) -> Optional[List[Optional[int]]]:
     if value is None:
         return None
@@ -240,7 +249,7 @@ class ParquetExporter:
         self.matches_root.mkdir(parents=True, exist_ok=True)
         self.participants_root.mkdir(parents=True, exist_ok=True)
         self._seen_matches: Set[int] = set()
-        self._seen_participants: Set[Tuple[int, int]] = set()
+        self._seen_participants: Set[Tuple[int, str]] = set()
         self._flush_rows = int(flush_rows)
         self._compression = compression
         # Buffers keyed by (season_id, server_name, matching_mode, date)
@@ -302,8 +311,8 @@ class ParquetExporter:
         """
 
         game_id = _safe_int(game.get("gameId"))
-        user_num = _safe_int(game.get("userNum"))
-        if game_id is None or user_num is None:
+        uid = extract_uid(game)
+        if game_id is None or uid is None:
             return
 
         key = self._partition_key(game)
@@ -343,8 +352,10 @@ class ParquetExporter:
 
     def _enqueue_participant(self, game: Dict[str, Any]) -> None:
         game_id = _safe_int(game.get("gameId"))
-        user_num = _safe_int(game.get("userNum"))
-        dup_key = (game_id or -1, user_num or -1)
+        uid = extract_uid(game)
+        if game_id is None or uid is None:
+            return
+        dup_key = (game_id, uid)
         if dup_key in self._seen_participants:
             return
         self._seen_participants.add(dup_key)
@@ -352,7 +363,7 @@ class ParquetExporter:
         row = {
             # Identifiers
             "game_id": game_id,
-            "user_num": user_num,
+            "uid": _safe_str(uid),
             # Core stats mirrored from the SQLite schema along with key combat totals
             "character_num": _safe_int(game.get("characterNum")),
             "skin_code": _safe_int(game.get("skinCode")),

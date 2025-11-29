@@ -9,8 +9,8 @@ from er_stats.ingest import IngestionManager
 pytest.importorskip("pyarrow")
 
 
-def _make_participant(make_game, *, game_id: int, user_num: int) -> Dict[str, Any]:
-    return make_game(game_id=game_id, user_num=user_num)
+def _make_participant(make_game, *, game_id: int, uid: int) -> Dict[str, Any]:
+    return make_game(game_id=game_id, uid=uid)
 
 
 def test_exporter_buffers_and_flushes(tmp_path, make_game):
@@ -19,7 +19,7 @@ def test_exporter_buffers_and_flushes(tmp_path, make_game):
     exp = ParquetExporter(out, flush_rows=2)
 
     # Five rows in the same partition (season/server/mode/date)
-    rows = [_make_participant(make_game, game_id=1, user_num=100 + i) for i in range(5)]
+    rows = [_make_participant(make_game, game_id=1, uid=100 + i) for i in range(5)]
     for r in rows:
         exp.write_from_game_payload(r)
     exp.close()
@@ -50,19 +50,19 @@ def test_cli_parquet_compact_merges_small_files(
     pages = [
         {
             "userGames": [
-                make_game(game_id=1, user_num=100),
-                make_game(game_id=2, user_num=100),
+                make_game(game_id=1, uid=100),
+                make_game(game_id=2, uid=100),
             ]
         }
     ]
-    participants = {1: {"userGames": [make_game(game_id=1, user_num=200)]}}
+    participants = {1: {"userGames": [make_game(game_id=1, uid=200)]}}
 
     class _FakeClient:
         def __init__(self, pages, participants):
             self.pages = pages
             self.participants = participants
 
-        def fetch_user_games(self, user_num, next_token=None):
+        def fetch_user_games(self, uid, next_token=None):
             return self.pages[0]
 
         def fetch_game_result(self, game_id):

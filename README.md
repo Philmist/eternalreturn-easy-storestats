@@ -85,7 +85,7 @@ manager = IngestionManager(client, store, max_games_per_user=50)
 
 try:
     # Crawl matches for these users and discover opponents (depth=1)
-    manager.ingest_from_seeds([1733900], depth=1)
+    manager.ingest_from_seeds(["uid-example-123"], depth=1)
 finally:
     client.close()
     store.close()
@@ -129,7 +129,7 @@ Ingest data into a SQLite DB:
 python -m er_stats.cli --db er.sqlite ingest \
   --base-url https://open-api.bser.io \
   --api-key $ER_DEV_APIKEY \
-  --user 1733900 --depth 1 --max-games 50 \
+  --uid uid-example-123 --depth 1 --max-games 50 \
   --min-interval 1.0 --max-retries 3
 ```
 
@@ -150,9 +150,12 @@ Write Parquet datasets during ingest (for DuckDB/analytics):
 python -m er_stats.cli --db er.sqlite ingest \
   --base-url https://open-api.bser.io \
   --api-key $ER_DEV_APIKEY \
-  --user 1733900 --depth 1 \
+  --uid uid-example-123 --depth 1 \
   --parquet-dir data/parquet
 ```
+
+> [!NOTE]
+> The API now identifies players by `uid` (`userId`), which changes when a nickname changes. Databases created with older `userNum`-based versions must be recreated for this release.
 
 This creates partitioned datasets under `data/parquet/`:
 - `matches/season_id=..../server_name=.../matching_mode=.../date=YYYY-MM-DD/*.parquet`
@@ -192,7 +195,7 @@ Repeat for `matches` if desired, or point `--src` to the root (e.g., `data/parqu
 
 ### Ingest by nickname
 
-You can start ingestion using public nicknames instead of numeric `userNum`:
+You can start ingestion using public nicknames instead of providing a UID:
 
 ```bash
 python -m er_stats.cli --db er.sqlite ingest \
@@ -201,7 +204,7 @@ python -m er_stats.cli --db er.sqlite ingest \
   --nickname Philmist --nickname AnotherPlayer \
   --depth 1 --max-games 10
 ```
-The CLI resolves each `--nickname` via `GET /v1/user/nickname?query=...` and combines the results with any `--user` values. At least one of `--user` or `--nickname` is required.
+The CLI resolves each `--nickname` via `GET /v1/user/nickname?query=...` and combines the results with any `--uid` values. At least one of `--uid` or `--nickname` is required.
 
 Run aggregations (outputs JSON to stdout):
 
