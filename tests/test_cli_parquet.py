@@ -70,18 +70,18 @@ def test_cli_ingest_with_parquet_dir(monkeypatch, store, tmp_path, make_game):
 
     out_dir = tmp_path / "out_parquet"
     args = [
-            "--db",
-            store.path,
-            "ingest",
-            "--base-url",
-            "https://example.invalid",
-            "--uid",
-            "12345",
-            "--depth",
-            "1",
-            "--parquet-dir",
-            str(out_dir),
-            "--min-interval",
+        "--db",
+        store.path,
+        "ingest",
+        "--base-url",
+        "https://example.invalid",
+        "--uid",
+        "12345",
+        "--depth",
+        "1",
+        "--parquet-dir",
+        str(out_dir),
+        "--min-interval",
         "0.0",
     ]
 

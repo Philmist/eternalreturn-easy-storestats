@@ -75,6 +75,8 @@ class IngestionManager:
             payload = self.client.fetch_user_games(uid, next_token)
             games = payload.get("userGames", [])
             for game in games:
+                if extract_uid(game) is None:
+                    game["uid"] = uid
                 if cutoff:
                     start_iso = parse_start_time(game.get("startDtm"))
                     if start_iso:
