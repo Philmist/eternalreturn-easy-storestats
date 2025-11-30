@@ -89,6 +89,7 @@ class SQLiteStore:
                     nickname TEXT,
                     first_seen TEXT,
                     last_seen TEXT,
+                    last_checked TEXT,
                     last_mmr INTEGER,
                     ml_bot INTEGER DEFAULT 0,
                     last_language TEXT,
@@ -222,15 +223,16 @@ class SQLiteStore:
             cur.execute(
                 """
                 INSERT INTO users (
-                    uid, nickname, first_seen, last_seen, last_mmr, ml_bot, last_language
+                    uid, nickname, first_seen, last_seen, last_checked, last_mmr, ml_bot, last_language
                 ) VALUES (
-                    :uid, :nickname, :first_seen, :last_seen, :last_mmr, :ml_bot, :last_language
+                    :uid, :nickname, :first_seen, :last_seen, :last_checked, :last_mmr, :ml_bot, :last_language
                 )
                 ON CONFLICT(uid) DO UPDATE SET
                     nickname=excluded.nickname,
                     last_seen=MAX(users.last_seen, excluded.last_seen),
                     last_mmr=excluded.last_mmr,
                     ml_bot=excluded.ml_bot,
+                    last_checked=COALESCE(users.last_checked, excluded.last_checked),
                     last_language=excluded.last_language
                 WHERE
                     excluded.last_seen > users.last_seen
@@ -240,6 +242,7 @@ class SQLiteStore:
                     "nickname": nickname,
                     "first_seen": start_time,
                     "last_seen": start_time,
+                    "last_checked": start_time,
                     "last_mmr": mmr_after,
                     "ml_bot": ml_bot_flag,
                     "last_language": language,
@@ -578,10 +581,43 @@ class SQLiteStore:
             row = cur.fetchone()
             return row["last_seen"] if row else None
 
+    def get_user_last_checked(self, uid: str) -> Optional[str]:
+        with self.cursor() as cur:
+            cur.execute(
+                "SELECT last_checked FROM users WHERE uid=? AND deleted = 0", (uid,)
+            )
+            row = cur.fetchone()
+            return row["last_checked"] if row else None
+
+    def update_user_last_checked(self, uid: str, checked_at: str) -> None:
+        with self.cursor() as cur:
+            cur.execute(
+                "UPDATE users SET last_checked=? WHERE uid=? AND deleted = 0",
+                (checked_at, uid),
+            )
+        self.connection.commit()
+
     def get_participants_for_game(self, game_id: int) -> Set[str]:
         with self.cursor() as cur:
             cur.execute("SELECT uid FROM user_match_stats WHERE game_id=?", (game_id,))
             return {row["uid"] for row in cur.fetchall()}
+
+    def get_latest_nickname_for_uid(self, uid: str) -> Optional[str]:
+        if not isinstance(uid, str):
+            return None
+        with self.cursor() as cur:
+            cur.execute(
+                """
+                SELECT nickname
+                FROM users
+                WHERE uid=?
+                ORDER BY unixepoch(last_seen, 'auto') DESC
+                LIMIT 1
+                """,
+                (uid,),
+            )
+            row = cur.fetchone()
+            return row["nickname"] if row else None
 
     def transaction(self) -> sqlite3.Connection:
         return self.connection

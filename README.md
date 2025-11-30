@@ -84,8 +84,8 @@ client = EternalReturnAPIClient(BASE_URL, api_key=API_KEY)
 manager = IngestionManager(client, store, max_games_per_user=50)
 
 try:
-    # Crawl matches for these users and discover opponents (depth=1)
-    manager.ingest_from_seeds(["uid-example-123"], depth=1)
+    # Crawl matches for these nicknames and discover opponents (depth=1)
+    manager.ingest_from_seeds(["Philmist", "AnotherPlayer"], depth=1)
 finally:
     client.close()
     store.close()
@@ -129,7 +129,7 @@ Ingest data into a SQLite DB:
 python -m er_stats.cli --db er.sqlite ingest \
   --base-url https://open-api.bser.io \
   --api-key $ER_DEV_APIKEY \
-  --uid uid-example-123 --depth 1 --max-games 50 \
+  --nickname Philmist --depth 1 --max-games 50 \
   --min-interval 1.0 --max-retries 3
 ```
 
@@ -150,12 +150,14 @@ Write Parquet datasets during ingest (for DuckDB/analytics):
 python -m er_stats.cli --db er.sqlite ingest \
   --base-url https://open-api.bser.io \
   --api-key $ER_DEV_APIKEY \
-  --uid uid-example-123 --depth 1 \
+  --nickname Philmist --depth 1 \
   --parquet-dir data/parquet
 ```
 
 > [!NOTE]
-> The API now identifies players by `uid` (`userId`), which changes when a nickname changes. Databases created with older `userNum`-based versions must be recreated for this release.
+> The API now returns a new `uid` (`userId`) on every nickname lookup. Stored nickname→uid mappings are reused unless `/v1/user/games/uid/{uid}` returns 404, in which case the nickname is resolved again. Databases created with older `userNum`-based versions must be recreated for this release.
+> Stale UIDs may be lazily rechecked with `/v1/user/games/uid/{uid}`; a 404 triggers nickname re-resolution, while other responses keep the cached uid.
+> The developer API may return 403 or 429 when rate limited; the client applies backoff/retries for these, but persistent 403 will abort the current ingest attempt.
 
 This creates partitioned datasets under `data/parquet/`:
 - `matches/season_id=..../server_name=.../matching_mode=.../date=YYYY-MM-DD/*.parquet`
@@ -195,7 +197,7 @@ Repeat for `matches` if desired, or point `--src` to the root (e.g., `data/parqu
 
 ### Ingest by nickname
 
-You can start ingestion using public nicknames instead of providing a UID:
+Ingestion seeds now require public nicknames:
 
 ```bash
 python -m er_stats.cli --db er.sqlite ingest \
@@ -204,7 +206,7 @@ python -m er_stats.cli --db er.sqlite ingest \
   --nickname Philmist --nickname AnotherPlayer \
   --depth 1 --max-games 10
 ```
-The CLI resolves each `--nickname` via `GET /v1/user/nickname?query=...` and combines the results with any `--uid` values. At least one of `--uid` or `--nickname` is required.
+The CLI resolves each `--nickname` via `GET /v1/user/nickname?query=...` when needed. UID seeds are no longer supported.
 
 Run aggregations (outputs JSON to stdout):
 

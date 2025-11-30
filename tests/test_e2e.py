@@ -80,7 +80,7 @@ def test_ingestion_manager_writes_sqlite_and_parquet(store, tmp_path, make_game)
     discovered = manager.ingest_user(mapping["Alice"])
     # Ensure buffered Parquet rows are flushed
     exporter.close()
-    assert {mapping["Bob"], mapping["Carol"], mapping["Dave"]}.issubset(discovered)
+    assert {"Bob", "Carol", "Dave"}.issubset(discovered)
 
     cur = store.connection.execute("SELECT COUNT(*) FROM matches")
     assert cur.fetchone()[0] == 2

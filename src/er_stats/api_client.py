@@ -149,8 +149,8 @@ class EternalReturnAPIClient:
             response = self.session.get(url, headers=headers, timeout=self.timeout)
 
             status = getattr(response, "status_code", None)
-            # Handle 429 Too Many Requests with basic backoff
-            if status == 429:
+            # Handle 429 Too Many Requests (and 403 when used as rate-limit) with basic backoff
+            if status in (403, 429):
                 # Honor Retry-After if present; default to min_interval
                 retry_after = None
                 try:

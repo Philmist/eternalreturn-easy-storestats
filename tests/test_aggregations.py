@@ -22,7 +22,16 @@ def test_aggregations_basic(store, make_game):
     store.upsert_from_game_payload(
         make_game(game_id=3, nickname="user-12", uid=12, character_num=2, game_rank=1)
     )
-    store.upsert_match({"gameId": 99, "seasonId": 25, "matchingMode": 3, "matchingTeamMode": 1, "serverName": "NA", "incomplete": 1})
+    store.upsert_match(
+        {
+            "gameId": 99,
+            "seasonId": 25,
+            "matchingMode": 3,
+            "matchingTeamMode": 1,
+            "serverName": "NA",
+            "incomplete": 1,
+        }
+    )
 
     store.refresh_characters(
         [

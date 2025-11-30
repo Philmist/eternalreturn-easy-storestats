@@ -926,15 +926,15 @@ def test_cli_ingest_only_newer_games_enabled_by_default(monkeypatch, store):
             "ingest",
             "--base-url",
             "https://example.invalid",
-            "--uid",
-            "12345",
+            "--nickname",
+            "seeduser",
         ]
     )
 
     assert code == 0
     assert recorded_kwargs["only_newer_games"] is True
     assert recorded_kwargs["max_games_per_user"] is None
-    assert recorded_kwargs["seeds"] == ["12345"]
+    assert recorded_kwargs["seeds"] == ["seeduser"]
     client = _DummyClient.last_instance
     assert client is not None
     assert client.fetch_character_attributes_calls == 1
@@ -969,15 +969,15 @@ def test_cli_ingest_can_include_older_games(monkeypatch, store):
             "ingest",
             "--base-url",
             "https://example.invalid",
-            "--uid",
-            "777",
+            "--nickname",
+            "seeduser",
             "--include-older-games",
         ]
     )
 
     assert code == 0
     assert recorded_kwargs["only_newer_games"] is False
-    assert recorded_kwargs["seeds"] == ["777"]
+    assert recorded_kwargs["seeds"] == ["seeduser"]
     client = _DummyClient.last_instance
     assert client is not None
     assert client.fetch_character_attributes_calls == 1
@@ -1006,8 +1006,8 @@ def test_cli_ingest_require_metadata_refresh_success(monkeypatch, store):
             "ingest",
             "--base-url",
             "https://example.invalid",
-            "--uid",
-            "12345",
+            "--nickname",
+            "seeduser",
             "--require-metadata-refresh",
         ]
     )
@@ -1042,8 +1042,8 @@ def test_cli_ingest_require_metadata_refresh_fails_on_error(monkeypatch, store):
             "ingest",
             "--base-url",
             "https://example.invalid",
-            "--uid",
-            "12345",
+            "--nickname",
+            "seeduser",
             "--require-metadata-refresh",
         ]
     )
@@ -1080,8 +1080,8 @@ def test_cli_ingest_require_metadata_refresh_fails_on_character_error(
             "ingest",
             "--base-url",
             "https://example.invalid",
-            "--uid",
-            "12345",
+            "--nickname",
+            "seeduser",
             "--require-metadata-refresh",
         ]
     )

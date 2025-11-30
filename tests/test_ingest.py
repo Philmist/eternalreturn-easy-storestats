@@ -1,6 +1,8 @@
 import datetime as dt
 from typing import Any, Dict, Optional
 
+import requests
+
 from er_stats.ingest import IngestionManager
 
 
@@ -83,8 +85,8 @@ def test_ingest_user_and_participants(store, make_game):
 
     discovered = manager.ingest_user(users["100"])
 
-    # Discovered users from participants
-    assert {users["200"], users["201"], users["300"]}.issubset(discovered)
+    # Discovered users from participants (nicknames)
+    assert {"200", "201", "300"}.issubset(discovered)
     assert client.fetch_user_games_uids == [users["100"], users["100"]]
 
     # Data persisted for seed and participants
@@ -121,7 +123,7 @@ def test_ingest_skips_known_game_details(store, make_game):
 
     discovered = manager.ingest_user(users["100"])
 
-    assert {i for i in [users["200"], users["201"]]}.issubset(discovered)
+    assert {"200", "201"}.issubset(discovered)
     assert client.fetch_game_result_calls == []
 
 
@@ -192,7 +194,7 @@ def test_ingest_includes_older_games_when_cutoff_disabled(store, make_game):
     assert store.has_game(3)
 
 
-def test_ingest_rechecks_stale_nickname_and_prefers_api(store, make_game):
+def test_ingest_uses_cached_uid_without_recheck(store, make_game):
     nickname = "dup"
     old_uid = "UID-old"
     old_game = make_game(game_id=1, nickname=nickname, uid=old_uid)
@@ -208,6 +210,7 @@ def test_ingest_rechecks_stale_nickname_and_prefers_api(store, make_game):
     participant["startDtm"] = "2025-01-03T00:00:00+00:00"
     participants = {10: {"userGames": [participant]}}
 
+    # New uid exists in API map, but cache should be used and API lookup skipped.
     users = {"seed": seed_uid, nickname: "UID-new"}
     client = FakeClient(pages, participants, users)
     manager = IngestionManager(
@@ -219,14 +222,14 @@ def test_ingest_rechecks_stale_nickname_and_prefers_api(store, make_game):
 
     discovered = manager.ingest_user(seed_uid)
 
-    assert "UID-new" in discovered
+    assert nickname in discovered
     row = store.connection.execute(
         "SELECT uid FROM users WHERE nickname=? ORDER BY unixepoch(last_seen, 'auto') DESC LIMIT 1",
         (nickname,),
     ).fetchone()
     assert row is not None
-    assert row[0] == "UID-new"
-    assert nickname in client.fetch_user_by_nickname_calls
+    assert row[0] == old_uid
+    assert nickname not in client.fetch_user_by_nickname_calls
 
 
 def test_ingest_skips_unresolved_nickname_after_retries(store, make_game):
@@ -259,7 +262,7 @@ def test_ingest_skips_unresolved_nickname_after_retries(store, make_game):
     assert count == 0
 
 
-def test_ingest_rechecks_by_now_when_start_missing(store, make_game):
+def test_ingest_keeps_cached_uid_when_start_missing(store, make_game):
     nickname = "dup"
     old_uid = "UID-old"
     old_game = make_game(game_id=1, nickname=nickname, uid=old_uid)
@@ -292,8 +295,8 @@ def test_ingest_rechecks_by_now_when_start_missing(store, make_game):
         (nickname,),
     ).fetchone()
     assert row is not None
-    assert row[0] == "UID-new"
-    assert nickname in client.fetch_user_by_nickname_calls
+    assert row[0] == old_uid
+    assert nickname not in client.fetch_user_by_nickname_calls
 
 
 def test_ingest_marks_incomplete_on_participant_fail(store, make_game):
@@ -319,3 +322,38 @@ def test_ingest_marks_incomplete_on_participant_fail(store, make_game):
     ).fetchone()
     assert row is not None
     assert row[0] == 1
+
+
+def test_ingest_retries_uid_on_404_using_nickname(store, make_game):
+    class HTTP404Client(FakeClient):
+        def __init__(
+            self,
+            pages: list[Dict[str, Any]],
+            participants: Dict[int, Dict[str, Any]],
+            users: Dict[str, str],
+        ):
+            super().__init__(pages, participants, users)
+            self.stale_uid = "UID-old"
+
+        def fetch_user_games(
+            self, uid: str, next_token: Optional[str] = None
+        ) -> Dict[str, Any]:
+            self.fetch_user_games_calls.append(next_token)
+            self.fetch_user_games_uids.append(uid)
+            if uid == self.stale_uid:
+                response = requests.Response()
+                response.status_code = 404
+                raise requests.HTTPError(response=response)
+            if next_token is None:
+                return self.pages[0]
+            return self.pages[1]
+
+    pages = [{"userGames": [make_game(game_id=50, nickname="seed")]}]
+    client = HTTP404Client(pages, {}, {"seed": "UID-new"})
+    manager = IngestionManager(client, store, fetch_game_details=False)
+
+    manager.ingest_user("UID-old", seed_nickname="seed")
+
+    # First attempt with stale UID, then retry with fresh one
+    assert client.fetch_user_games_uids == ["UID-old", "UID-new"]
+    assert client.fetch_user_by_nickname_calls == ["seed"]

@@ -8,6 +8,8 @@ import time
 from collections import deque
 from typing import Callable, Iterable, Optional, Set
 
+import requests
+
 from .api_client import EternalReturnAPIClient
 from .db import SQLiteStore, parse_start_time
 
@@ -37,6 +39,7 @@ class IngestionManager:
         only_newer_games: bool = False,
         prefer_nickname_fetch: bool = False,
         nickname_recheck_interval: dt.timedelta = dt.timedelta(hours=24),
+        uid_recheck_interval: dt.timedelta = dt.timedelta(hours=24),
         max_nickname_attempts: int = 3,
         participant_retry_attempts: int = 2,
         participant_retry_delay: float = 1.0,
@@ -51,6 +54,7 @@ class IngestionManager:
         self.only_newer_games = only_newer_games
         self.prefer_nickname_fetch = prefer_nickname_fetch
         self.nickname_recheck_interval = nickname_recheck_interval
+        self.uid_recheck_interval = uid_recheck_interval
         self.max_nickname_attempts = int(max_nickname_attempts)
         self.participant_retry_attempts = int(participant_retry_attempts)
         self.participant_retry_delay = float(participant_retry_delay)
@@ -83,56 +87,81 @@ class IngestionManager:
         return None
 
     def _resolve_uid(self, nickname: str, start_dtm: Optional[str]) -> Optional[str]:
-        """Resolve a nickname to UID, preferring cached mappings and re-checking when stale."""
+        """Resolve a nickname to UID using cached mapping first, then API."""
 
         if not isinstance(nickname, str) or not nickname:
             return None
-        start_iso = parse_start_time(start_dtm)
-        start_dt: Optional[dt.datetime] = None
-        if start_iso:
-            try:
-                start_dt = dt.datetime.fromisoformat(start_iso)
-            except ValueError:
-                start_dt = None
-
-        cached_uid: Optional[str] = None
-        cached_last_seen_dt: Optional[dt.datetime] = None
+        cached_uid = None
         if not self.prefer_nickname_fetch:
             cached = self.store.get_uid_info_for_nickname(nickname)
             if cached:
-                cached_uid, cached_last_seen = cached
-                if cached_last_seen:
-                    try:
-                        cached_last_seen_dt = dt.datetime.fromisoformat(
-                            cached_last_seen
-                        )
-                    except ValueError:
-                        cached_last_seen_dt = None
+                cached_uid = cached[0]
+        if cached_uid:
+            return cached_uid
+        return self._fetch_uid_with_retries(nickname)
 
-        reference_dt = start_dt or self.ingest_started_at
+    def _needs_uid_recheck(self, uid: str) -> bool:
+        last_checked = self.store.get_user_last_checked(uid)
+        if last_checked is None:
+            return False
+        try:
+            checked_dt = dt.datetime.fromisoformat(last_checked)
+        except ValueError:
+            return True
+        now = dt.datetime.now(dt.timezone.utc)
+        return now - checked_dt > self.uid_recheck_interval
 
-        # Trust cache when it is recent enough relative to the match timestamp
-        if cached_uid is not None:
-            if cached_last_seen_dt is None:
-                return cached_uid
-            if reference_dt <= cached_last_seen_dt:
-                return cached_uid
-            if reference_dt - cached_last_seen_dt <= self.nickname_recheck_interval:
-                return cached_uid
+    def _mark_uid_checked(self, uid: str) -> None:
+        now_iso = dt.datetime.now(dt.timezone.utc).isoformat()
+        try:
+            self.store.update_user_last_checked(uid, now_iso)
+        except Exception:
+            pass
 
-        resolved = self._fetch_uid_with_retries(nickname)
-        return resolved
+    def _validate_uid(self, uid: str, nickname: Optional[str]) -> Optional[str]:
+        """Return a valid uid (possibly re-resolved) or None when not recoverable."""
 
-    def ingest_user(self, uid: str) -> Set[str]:
+        if not self._needs_uid_recheck(uid):
+            return uid
+        try:
+            # Existence check only; ignore payload
+            self.client.fetch_user_games(uid, None)
+            self._mark_uid_checked(uid)
+            return uid
+        except requests.HTTPError as exc:
+            status = getattr(exc.response, "status_code", None)
+            if status == 404 and nickname:
+                resolved_uid = self._fetch_uid_with_retries(nickname)
+                if resolved_uid:
+                    self._mark_uid_checked(resolved_uid)
+                    return resolved_uid
+            raise
+
+    def ingest_user(self, uid: str, *, seed_nickname: Optional[str] = None) -> Set[str]:
         """Ingest matches for a single user.
 
-        Returns a set of newly discovered UID from the processed games.
+        Returns a set of newly discovered nicknames from the processed games.
         """
 
         uid = str(uid)
         discovered: Set[str] = set()
         next_token: Optional[str] = None
         processed = 0
+
+        if seed_nickname:
+            try:
+                validated = self._validate_uid(uid, seed_nickname)
+                if validated is None:
+                    self._report(
+                        f"Aborting ingest for uid {uid}: failed to revalidate nickname '{seed_nickname}'"
+                    )
+                    return discovered
+                uid = validated
+            except Exception as exc:
+                self._report(
+                    f"Aborting ingest for uid {uid} due to validation error: {exc}"
+                )
+                return discovered
 
         self._report(f"Fetching games for uid {uid}")
 
@@ -147,7 +176,23 @@ class IngestionManager:
 
         stop_due_to_cutoff = False
         while True:
-            payload = self.client.fetch_user_games(uid, next_token)
+            try:
+                payload = self.client.fetch_user_games(uid, next_token)
+            except requests.HTTPError as exc:
+                status = getattr(exc.response, "status_code", None)
+                if status == 404 and seed_nickname:
+                    self._report(
+                        f"UID {uid} returned 404; retrying nickname lookup for '{seed_nickname}'"
+                    )
+                    resolved_uid = self._fetch_uid_with_retries(seed_nickname)
+                    if resolved_uid and resolved_uid != uid:
+                        uid = resolved_uid
+                        next_token = None
+                        continue
+                self._report(f"Aborting ingest for uid {uid} due to error: {exc}")
+                break
+            else:
+                self._mark_uid_checked(uid)
             games = payload.get("userGames", [])
             for game in games:
                 if cutoff:
@@ -191,23 +236,33 @@ class IngestionManager:
         return discovered
 
     def ingest_from_seeds(self, seeds: Iterable[str], *, depth: int = 1) -> None:
-        """Recursively ingest matches starting from the provided seed users."""
+        """Recursively ingest matches starting from the provided seed nicknames."""
 
         queue = deque((seed, 0) for seed in seeds)
-        seen_users: Set[str] = set()
+        seen_nicknames: Set[str] = set()
         while queue:
             self._report(f"Ingest queue left: {len(queue)} users")
-            uid, current_depth = queue.popleft()
-            if uid in seen_users:
+            nickname, current_depth = queue.popleft()
+            if nickname in seen_nicknames:
                 continue
-            seen_users.add(uid)
-            self._report(f"Ingesting user {uid} at depth {current_depth}")
-            new_users = self.ingest_user(uid)
-            self._report(f"Discovered {len(new_users)} new users from user {uid}")
+            seen_nicknames.add(nickname)
+            uid = self._resolve_uid(nickname, None)
+            if uid is None:
+                self._report(
+                    f"Skipping nickname '{nickname}'; could not resolve to uid"
+                )
+                continue
+            self._report(
+                f"Ingesting nickname '{nickname}' (uid {uid}) at depth {current_depth}"
+            )
+            new_users = self.ingest_user(uid, seed_nickname=nickname)
+            self._report(
+                f"Discovered {len(new_users)} new users from nickname '{nickname}'"
+            )
             if current_depth + 1 > depth:
                 continue
             for next_user in new_users:
-                if next_user not in seen_users:
+                if next_user not in seen_nicknames:
                     queue.append((next_user, current_depth + 1))
 
     def _ingest_game_participants(
@@ -223,7 +278,15 @@ class IngestionManager:
                     f"Skipping API fetch for known game {game_id}; "
                     f"loaded {len(cached_participants)} participants from cache"
                 )
-                return cached_participants
+                cached_nicknames = {
+                    n
+                    for n in (
+                        self.store.get_latest_nickname_for_uid(uid)
+                        for uid in cached_participants
+                    )
+                    if isinstance(n, str) and n
+                }
+                return cached_nicknames
         payload = self.client.fetch_game_result(game_id)
         participants = payload.get("userGames", [])
         discovered: Set[str] = set()
@@ -240,13 +303,28 @@ class IngestionManager:
                     if attempt < self.participant_retry_attempts:
                         time.sleep(self.participant_retry_delay)
                     continue
+                if self._needs_uid_recheck(uid):
+                    try:
+                        validated_uid = self._validate_uid(
+                            uid, participant.get("nickname")
+                        )
+                    except Exception as exc:
+                        self._report(
+                            f"Skipping participant due to uid validation error: {exc}"
+                        )
+                        break
+                    if validated_uid is None:
+                        break
+                    uid = validated_uid
                 participant["uid"] = uid
                 try:
                     self.store.upsert_from_game_payload(participant)
                     success = True
                     if self._parquet is not None:
                         self._parquet.write_from_game_payload(participant)
-                    discovered.add(uid)
+                    participant_nickname = participant.get("nickname")
+                    if isinstance(participant_nickname, str) and participant_nickname:
+                        discovered.add(participant_nickname)
                     break
                 except ValueError as exc:
                     self._report(
