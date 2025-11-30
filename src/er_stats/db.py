@@ -101,6 +101,7 @@ class SQLiteStore:
                     matching_mode INTEGER NOT NULL,
                     matching_team_mode INTEGER NOT NULL,
                     server_name TEXT NOT NULL,
+                    incomplete INTEGER DEFAULT 0,
                     version_season INTEGER,
                     version_major INTEGER,
                     version_minor INTEGER,
@@ -270,6 +271,10 @@ class SQLiteStore:
                     matching_mode=excluded.matching_mode,
                     matching_team_mode=excluded.matching_team_mode,
                     server_name=excluded.server_name,
+                    incomplete=CASE
+                        WHEN matches.incomplete = 1 THEN 1
+                        ELSE excluded.incomplete
+                    END,
                     version_season=excluded.version_season,
                     version_major=excluded.version_major,
                     version_minor=excluded.version_minor,
@@ -282,6 +287,7 @@ class SQLiteStore:
                     "matching_mode": game.get("matchingMode"),
                     "matching_team_mode": game.get("matchingTeamMode"),
                     "server_name": game.get("serverName"),
+                    "incomplete": game.get("incomplete", 0),
                     "version_season": game.get("versionSeason"),
                     "version_major": game.get("versionMajor"),
                     "version_minor": game.get("versionMinor"),
@@ -594,6 +600,38 @@ class SQLiteStore:
             )
             uids = [row["uid"] for row in cur.fetchall()]
             return uids[0] if len(uids) > 0 else None
+
+    def get_uid_info_for_nickname(
+        self, nickname: str
+    ) -> Optional[tuple[str, Optional[str]]]:
+        """Return the most recent (uid, last_seen) for a nickname, or None."""
+
+        if not isinstance(nickname, str):
+            return None
+        with self.cursor() as cur:
+            cur.execute(
+                """
+                SELECT uid, last_seen
+                FROM users
+                WHERE nickname=? AND deleted = 0
+                ORDER BY unixepoch(last_seen, 'auto') DESC
+                LIMIT 1
+                """,
+                (nickname,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                return None
+            return row["uid"], row["last_seen"]
+
+    def mark_game_incomplete(self, game_id: int) -> None:
+        """Flag a match row as incomplete (partial participant data)."""
+
+        with self.cursor() as cur:
+            cur.execute(
+                "UPDATE matches SET incomplete=1 WHERE game_id=?", (int(game_id),)
+            )
+        self.connection.commit()
 
 
 __all__ = ["SQLiteStore", "parse_start_time"]

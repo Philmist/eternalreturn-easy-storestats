@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import time
 from collections import deque
 from typing import Callable, Iterable, Optional, Set
 
@@ -35,6 +36,10 @@ class IngestionManager:
         parquet_exporter: Optional["ParquetExporter"] = None,
         only_newer_games: bool = False,
         prefer_nickname_fetch: bool = False,
+        nickname_recheck_interval: dt.timedelta = dt.timedelta(hours=24),
+        max_nickname_attempts: int = 3,
+        participant_retry_attempts: int = 2,
+        participant_retry_delay: float = 1.0,
     ) -> None:
         self.client = client
         self.store = store
@@ -45,6 +50,11 @@ class IngestionManager:
         self._parquet = parquet_exporter
         self.only_newer_games = only_newer_games
         self.prefer_nickname_fetch = prefer_nickname_fetch
+        self.nickname_recheck_interval = nickname_recheck_interval
+        self.max_nickname_attempts = int(max_nickname_attempts)
+        self.participant_retry_attempts = int(participant_retry_attempts)
+        self.participant_retry_delay = float(participant_retry_delay)
+        self.ingest_started_at = dt.datetime.now(dt.timezone.utc)
 
     def _report(self, message: str) -> None:
         if self._progress_callback:
@@ -52,16 +62,66 @@ class IngestionManager:
         else:
             logger.info(message)
 
-    def _extract_uid(self, nickname: str) -> Optional[str]:
-        game_uid: Optional[str] = (
-            None
-            if self.prefer_nickname_fetch
-            else self.store.get_uid_from_nickname(nickname)
-        )
-        if not isinstance(game_uid, str):
-            uid_response = self.client.fetch_user_by_nickname(nickname)
-            game_uid = uid_response.get("user", {}).get("userId", None)
-        return game_uid
+    def _fetch_uid_with_retries(self, nickname: str) -> Optional[str]:
+        last_exc: Optional[Exception] = None
+        for attempt in range(1, self.max_nickname_attempts + 1):
+            try:
+                payload = self.client.fetch_user_by_nickname(nickname)
+                user = payload.get("user") or {}
+                uid_value = user.get("userId") or user.get("uid")
+                if isinstance(uid_value, str) and uid_value:
+                    return uid_value
+                raise ValueError(f"Nickname '{nickname}' did not resolve to a uid.")
+            except Exception as exc:
+                last_exc = exc
+                if attempt >= self.max_nickname_attempts:
+                    break
+        if last_exc is not None:
+            self._report(
+                f"Failed to resolve nickname '{nickname}' after {self.max_nickname_attempts} attempts: {last_exc}"
+            )
+        return None
+
+    def _resolve_uid(self, nickname: str, start_dtm: Optional[str]) -> Optional[str]:
+        """Resolve a nickname to UID, preferring cached mappings and re-checking when stale."""
+
+        if not isinstance(nickname, str) or not nickname:
+            return None
+        start_iso = parse_start_time(start_dtm)
+        start_dt: Optional[dt.datetime] = None
+        if start_iso:
+            try:
+                start_dt = dt.datetime.fromisoformat(start_iso)
+            except ValueError:
+                start_dt = None
+
+        cached_uid: Optional[str] = None
+        cached_last_seen_dt: Optional[dt.datetime] = None
+        if not self.prefer_nickname_fetch:
+            cached = self.store.get_uid_info_for_nickname(nickname)
+            if cached:
+                cached_uid, cached_last_seen = cached
+                if cached_last_seen:
+                    try:
+                        cached_last_seen_dt = dt.datetime.fromisoformat(
+                            cached_last_seen
+                        )
+                    except ValueError:
+                        cached_last_seen_dt = None
+
+        reference_dt = start_dt or self.ingest_started_at
+
+        # Trust cache when it is recent enough relative to the match timestamp
+        if cached_uid is not None:
+            if cached_last_seen_dt is None:
+                return cached_uid
+            if reference_dt <= cached_last_seen_dt:
+                return cached_uid
+            if reference_dt - cached_last_seen_dt <= self.nickname_recheck_interval:
+                return cached_uid
+
+        resolved = self._fetch_uid_with_retries(nickname)
+        return resolved
 
     def ingest_user(self, uid: str) -> Set[str]:
         """Ingest matches for a single user.
@@ -167,14 +227,37 @@ class IngestionManager:
         payload = self.client.fetch_game_result(game_id)
         participants = payload.get("userGames", [])
         discovered: Set[str] = set()
+        incomplete = False
         for participant in participants:
-            uid = self._extract_uid(participant.get("nickname", ""))
-            participant["uid"] = uid
-            self.store.upsert_from_game_payload(participant)
-            if self._parquet is not None:
-                self._parquet.write_from_game_payload(participant)
-            if uid is not None:
-                discovered.add(uid)
+            success = False
+            for attempt in range(1, self.participant_retry_attempts + 1):
+                if not participant.get("startDtm"):
+                    participant["startDtm"] = self.ingest_started_at.isoformat()
+                uid = self._resolve_uid(
+                    participant.get("nickname", ""), participant.get("startDtm")
+                )
+                if uid is None:
+                    if attempt < self.participant_retry_attempts:
+                        time.sleep(self.participant_retry_delay)
+                    continue
+                participant["uid"] = uid
+                try:
+                    self.store.upsert_from_game_payload(participant)
+                    success = True
+                    if self._parquet is not None:
+                        self._parquet.write_from_game_payload(participant)
+                    discovered.add(uid)
+                    break
+                except ValueError as exc:
+                    self._report(
+                        f"Skipping participant attempt {attempt} for game {game_id} due to error: {exc}"
+                    )
+                    if attempt < self.participant_retry_attempts:
+                        time.sleep(self.participant_retry_delay)
+            if not success:
+                incomplete = True
+        if incomplete and game_id is not None:
+            self.store.mark_game_incomplete(int(game_id))
         self._report(f"Fetched {len(participants)} participants for game {game_id}")
         return discovered
 

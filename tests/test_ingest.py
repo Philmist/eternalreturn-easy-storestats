@@ -1,3 +1,4 @@
+import datetime as dt
 from typing import Any, Dict, Optional
 
 from er_stats.ingest import IngestionManager
@@ -9,6 +10,7 @@ class FakeClient:
         pages: list[Dict[str, Any]],
         participants: Dict[int, Dict[str, Any]],
         users: Dict[str, str],
+        nickname_failures: Optional[Dict[str, int]] = None,
     ) -> None:
         self.pages = pages
         self.participants = participants
@@ -16,8 +18,15 @@ class FakeClient:
         self.fetch_user_games_calls: list[Optional[str]] = []
         self.fetch_user_games_uids: list[str] = []
         self.fetch_game_result_calls: list[int] = []
+        self.fetch_user_by_nickname_calls: list[str] = []
+        self.nickname_failures = dict(nickname_failures or {})
 
     def fetch_user_by_nickname(self, nickname: str) -> Dict[str, Any]:
+        self.fetch_user_by_nickname_calls.append(nickname)
+        failures_left = self.nickname_failures.get(nickname, 0)
+        if failures_left > 0:
+            self.nickname_failures[nickname] = failures_left - 1
+            raise RuntimeError(f"simulated nickname lookup failure for {nickname}")
         uid = self.users.get(nickname)
         return {
             "code": 200,
@@ -181,3 +190,132 @@ def test_ingest_includes_older_games_when_cutoff_disabled(store, make_game):
     assert client.fetch_user_games_calls == [None, "tok"]
     assert store.has_game(2)
     assert store.has_game(3)
+
+
+def test_ingest_rechecks_stale_nickname_and_prefers_api(store, make_game):
+    nickname = "dup"
+    old_uid = "UID-old"
+    old_game = make_game(game_id=1, nickname=nickname, uid=old_uid)
+    old_game["startDtm"] = "2025-01-01T00:00:00+00:00"
+    store.upsert_from_game_payload(old_game)
+
+    seed_uid = "UID-seed"
+    seed_game = make_game(game_id=10, nickname="seed", uid=seed_uid)
+    seed_game["startDtm"] = "2025-01-03T00:00:00+00:00"
+    pages = [{"userGames": [seed_game]}]
+
+    participant = make_game(game_id=10, nickname=nickname)
+    participant["startDtm"] = "2025-01-03T00:00:00+00:00"
+    participants = {10: {"userGames": [participant]}}
+
+    users = {"seed": seed_uid, nickname: "UID-new"}
+    client = FakeClient(pages, participants, users)
+    manager = IngestionManager(
+        client,
+        store,
+        nickname_recheck_interval=dt.timedelta(hours=1),
+        max_nickname_attempts=2,
+    )
+
+    discovered = manager.ingest_user(seed_uid)
+
+    assert "UID-new" in discovered
+    row = store.connection.execute(
+        "SELECT uid FROM users WHERE nickname=? ORDER BY unixepoch(last_seen, 'auto') DESC LIMIT 1",
+        (nickname,),
+    ).fetchone()
+    assert row is not None
+    assert row[0] == "UID-new"
+    assert nickname in client.fetch_user_by_nickname_calls
+
+
+def test_ingest_skips_unresolved_nickname_after_retries(store, make_game):
+    seed_uid = "UID-seed"
+    seed_game = make_game(game_id=20, nickname="seed", uid=seed_uid)
+    pages = [{"userGames": [seed_game]}]
+
+    missing_nickname = "ghost"
+    participant = make_game(game_id=20, nickname=missing_nickname)
+    participants = {20: {"userGames": [participant]}}
+
+    client = FakeClient(
+        pages, participants, {}, nickname_failures={missing_nickname: 2}
+    )
+    manager = IngestionManager(
+        client,
+        store,
+        nickname_recheck_interval=dt.timedelta(seconds=0),
+        max_nickname_attempts=2,
+        participant_retry_attempts=1,
+    )
+
+    discovered = manager.ingest_user(seed_uid)
+
+    assert discovered == set()
+    assert client.fetch_user_by_nickname_calls == [missing_nickname, missing_nickname]
+    count = store.connection.execute(
+        "SELECT COUNT(*) FROM users WHERE nickname=?", (missing_nickname,)
+    ).fetchone()[0]
+    assert count == 0
+
+
+def test_ingest_rechecks_by_now_when_start_missing(store, make_game):
+    nickname = "dup"
+    old_uid = "UID-old"
+    old_game = make_game(game_id=1, nickname=nickname, uid=old_uid)
+    old_game["startDtm"] = "2025-01-01T00:00:00+00:00"
+    store.upsert_from_game_payload(old_game)
+
+    seed_uid = "UID-seed"
+    seed_game = make_game(game_id=30, nickname="seed", uid=seed_uid)
+    pages = [{"userGames": [seed_game]}]
+
+    participant = make_game(game_id=30, nickname=nickname)
+    participant.pop("startDtm", None)
+    participants = {30: {"userGames": [participant]}}
+
+    users = {"seed": seed_uid, nickname: "UID-new"}
+    client = FakeClient(pages, participants, users)
+    manager = IngestionManager(
+        client,
+        store,
+        nickname_recheck_interval=dt.timedelta(hours=1),
+        max_nickname_attempts=2,
+        participant_retry_attempts=1,
+    )
+    manager.ingest_started_at = dt.datetime(2025, 1, 5, tzinfo=dt.timezone.utc)
+
+    manager.ingest_user(seed_uid)
+
+    row = store.connection.execute(
+        "SELECT uid FROM users WHERE nickname=? ORDER BY unixepoch(last_seen, 'auto') DESC LIMIT 1",
+        (nickname,),
+    ).fetchone()
+    assert row is not None
+    assert row[0] == "UID-new"
+    assert nickname in client.fetch_user_by_nickname_calls
+
+
+def test_ingest_marks_incomplete_on_participant_fail(store, make_game):
+    seed_uid = "UID-seed"
+    seed_game = make_game(game_id=40, nickname="seed", uid=seed_uid)
+    pages = [{"userGames": [seed_game]}]
+
+    participant = make_game(game_id=40, nickname="ghost")
+    participants = {40: {"userGames": [participant]}}
+
+    client = FakeClient(pages, participants, {})
+    manager = IngestionManager(
+        client,
+        store,
+        max_nickname_attempts=1,
+        participant_retry_attempts=1,
+    )
+
+    manager.ingest_user(seed_uid)
+
+    row = store.connection.execute(
+        "SELECT incomplete FROM matches WHERE game_id=?", (40,)
+    ).fetchone()
+    assert row is not None
+    assert row[0] == 1

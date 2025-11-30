@@ -23,6 +23,9 @@ from .db import extract_uid, parse_start_time
 MATCH_SCHEMA = pa.schema(
     [
         pa.field("game_id", pa.int64()),
+        pa.field("season_id", pa.int32()),
+        pa.field("matching_mode", pa.int32()),
+        pa.field("matching_team_mode", pa.int32()),
         pa.field("version_season", pa.int64()),
         pa.field("version_major", pa.int64()),
         pa.field("version_minor", pa.int64()),
@@ -59,6 +62,9 @@ PARTICIPANT_SCHEMA = pa.schema(
         pa.field("premade", pa.int64()),
         pa.field("language", pa.string()),
         pa.field("ml_bot", pa.int64()),
+        pa.field("season_id", pa.int32()),
+        pa.field("matching_mode", pa.int32()),
+        pa.field("matching_team_mode", pa.int32()),
         pa.field("server_name", pa.string()),
         # Extended scalar stats
         pa.field("mmr_before", pa.int64()),
@@ -332,6 +338,9 @@ class ParquetExporter:
     ) -> None:
         row = {
             "game_id": _safe_int(game.get("gameId")),
+            "season_id": _safe_int(game.get("seasonId")),
+            "matching_mode": _safe_int(game.get("matchingMode")),
+            "matching_team_mode": _safe_int(game.get("matchingTeamMode")),
             "version_season": _safe_int(game.get("versionSeason")),
             "version_major": _safe_int(game.get("versionMajor")),
             "version_minor": _safe_int(game.get("versionMinor")),
@@ -387,6 +396,9 @@ class ParquetExporter:
             "team_number": _safe_int(game.get("teamNumber")),
             "premade": _safe_int(game.get("preMade")),
             "language": str(game.get("language") or ""),
+            "season_id": _safe_int(game.get("seasonId")),
+            "matching_mode": _safe_int(game.get("matchingMode")),
+            "matching_team_mode": _safe_int(game.get("matchingTeamMode")),
             "server_name": str(game.get("serverName") or ""),
         }
         # ML bot flag may be present under different keys; standardize to int 0/1

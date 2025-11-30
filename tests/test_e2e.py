@@ -111,7 +111,7 @@ def test_ingestion_manager_writes_sqlite_and_parquet(store, tmp_path, make_game)
     cols = set(t.column_names)
     assert {"game_id", "uid", "character_num", "game_rank"}.issubset(cols)
 
-    # Verify hive partition directories (season/server/mode/date), and no matching_team_mode
+    # Verify hive partition directories (season/server/mode/date) without matching_team_mode
     any_participant = participants_files[0]
     dir_names = {p.name for p in any_participant.parents}
     assert "season_id=25" in dir_names

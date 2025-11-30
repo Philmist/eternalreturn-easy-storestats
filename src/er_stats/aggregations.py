@@ -26,6 +26,7 @@ def _context_filters(
         "m.season_id = :season_id",
         "m.matching_mode = :matching_mode",
         "m.matching_team_mode = :matching_team_mode",
+        "m.incomplete = 0",
     ]
     if server_name is not None:
         params["server_name"] = server_name
