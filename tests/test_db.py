@@ -15,7 +15,7 @@ def test_parse_start_time_variants():
 
 
 def test_setup_and_upsert_roundtrip(store, make_game):
-    game = make_game(game_id=1, user_num=100)
+    game = make_game(game_id=1, nickname="player-100", uid="100")
     store.upsert_from_game_payload(game)
 
     cur = store.connection.execute("SELECT COUNT(*) FROM matches")
@@ -49,15 +49,21 @@ def test_setup_and_upsert_roundtrip(store, make_game):
 
 def test_store_mlbot(store, make_game):
     bot_user_num = 100
-    game = make_game(game_id=1, user_num=bot_user_num, mlbot=True)
+    game = make_game(
+        game_id=1, nickname=f"bot-{bot_user_num}", uid=str(bot_user_num), mlbot=True
+    )
     store.upsert_from_game_payload(game)
 
     pc_user_num = 200
-    game = make_game(game_id=1, user_num=pc_user_num, mlbot=False)
+    game = make_game(
+        game_id=1, nickname=f"pc-{pc_user_num}", uid=str(pc_user_num), mlbot=False
+    )
     store.upsert_from_game_payload(game)
 
     old_user_num = 300
-    game = make_game(game_id=1, user_num=old_user_num, mlbot=None)
+    game = make_game(
+        game_id=1, nickname=f"old-{old_user_num}", uid=str(old_user_num), mlbot=None
+    )
     store.upsert_from_game_payload(game)
 
     cur = store.connection.execute(

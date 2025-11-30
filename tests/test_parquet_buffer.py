@@ -10,7 +10,8 @@ pytest.importorskip("pyarrow")
 
 
 def _make_participant(make_game, *, game_id: int, uid: int) -> Dict[str, Any]:
-    return make_game(game_id=game_id, uid=uid)
+    nickname = f"user-{uid}"
+    return make_game(game_id=game_id, nickname=nickname, uid=str(uid))
 
 
 def test_exporter_buffers_and_flushes(tmp_path, make_game):
@@ -50,17 +51,32 @@ def test_cli_parquet_compact_merges_small_files(
     pages = [
         {
             "userGames": [
-                make_game(game_id=1, uid=100),
-                make_game(game_id=2, uid=100),
+                make_game(game_id=1, nickname="Alice"),
+                make_game(game_id=2, nickname="Alice"),
             ]
         }
     ]
-    participants = {1: {"userGames": [make_game(game_id=1, uid=200)]}}
+    participants = {1: {"userGames": [make_game(game_id=1, nickname="Bob")]}}
+    mapping = {
+        "Alice": "uid-100",
+        "Bob": "uid-200",
+    }
 
     class _FakeClient:
-        def __init__(self, pages, participants):
+        def __init__(self, pages, participants, mapping):
             self.pages = pages
             self.participants = participants
+            self.mapping = mapping
+
+        def fetch_user_by_nickname(self, nickname):
+            uid = self.mapping.get(nickname)
+            if uid is None:
+                raise RuntimeError("user not found")
+            return {
+                "code": 200,
+                "message": "Success",
+                "user": {"userId": uid, "nickname": nickname},
+            }
 
         def fetch_user_games(self, uid, next_token=None):
             return self.pages[0]
@@ -71,9 +87,9 @@ def test_cli_parquet_compact_merges_small_files(
         def close(self):
             return None
 
-    client = _FakeClient(pages, participants)
+    client = _FakeClient(pages, participants, mapping)
     manager = IngestionManager(client, store, parquet_exporter=exp)
-    manager.ingest_user(100)
+    manager.ingest_user(mapping["Alice"])
     exp.close()
 
     # Sanity: many small files exist at src

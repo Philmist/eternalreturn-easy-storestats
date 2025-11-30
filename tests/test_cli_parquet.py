@@ -10,14 +10,27 @@ pytest.importorskip("pyarrow")
 
 class _FakeClient:
     def __init__(
-        self, pages: list[Dict[str, Any]], participants: Dict[int, Dict[str, Any]]
+        self, pages: list[Dict[str, Any]], participants: Dict[int, Dict[str, Any]], mapping: Dict[str, str]
     ):
         self.pages = pages
         self.participants = participants
+        self.mapping = mapping
+        self.fetch_user_games_uids: list[str] = []
+
+    def fetch_user_by_nickname(self, nickname: str) -> Dict[str, Any]:
+        uid = self.mapping.get(nickname)
+        if uid is None:
+            raise RuntimeError("user not found")
+        return {
+            "code": 200,
+            "message": "Success",
+            "user": {"userId": uid, "nickname": nickname},
+        }
 
     def fetch_user_games(
         self, uid: str, next_token: Optional[str] = None
     ) -> Dict[str, Any]:
+        self.fetch_user_games_uids.append(uid)
         if next_token is None:
             return self.pages[0]
         return self.pages[1]
@@ -33,27 +46,33 @@ class _FakeClient:
 
 
 def _make_pages(make_game):
-    g1 = make_game(game_id=1, uid="100")
-    g2 = make_game(game_id=2, uid="100")
+    g1 = make_game(game_id=1, nickname="Alice")
+    g2 = make_game(game_id=2, nickname="Alice")
     pages = [
         {"userGames": [g1], "next": "tok"},
         {"userGames": [g2]},
     ]
-    p1_a = make_game(game_id=1, uid="200")
-    p1_b = make_game(game_id=1, uid="201")
-    p2_a = make_game(game_id=2, uid="300")
+    p1_a = make_game(game_id=1, nickname="Bob")
+    p1_b = make_game(game_id=1, nickname="Carol")
+    p2_a = make_game(game_id=2, nickname="Dave")
     participants = {
         1: {"userGames": [p1_a, p1_b]},
         2: {"userGames": [p2_a]},
     }
-    return pages, participants
+    mapping = {
+        "Alice": "uid-100",
+        "Bob": "uid-200",
+        "Carol": "uid-201",
+        "Dave": "uid-300",
+    }
+    return pages, participants, mapping
 
 
 def test_cli_ingest_with_parquet_dir(monkeypatch, store, tmp_path, make_game):
     # Monkeypatch the client used by CLI to our fake
     from er_stats import cli as cli_mod
 
-    pages, participants = _make_pages(make_game)
+    pages, participants, mapping = _make_pages(make_game)
 
     def _fake_ctor(
         base_url: str,
@@ -64,7 +83,7 @@ def test_cli_ingest_with_parquet_dir(monkeypatch, store, tmp_path, make_game):
         min_interval: float = 1.0,
         max_retries: int = 3,
     ):
-        return _FakeClient(pages, participants)
+        return _FakeClient(pages, participants, mapping)
 
     monkeypatch.setattr(cli_mod, "EternalReturnAPIClient", _fake_ctor)
 
@@ -76,7 +95,7 @@ def test_cli_ingest_with_parquet_dir(monkeypatch, store, tmp_path, make_game):
         "--base-url",
         "https://example.invalid",
         "--uid",
-        "12345",
+        mapping["Alice"],
         "--depth",
         "1",
         "--parquet-dir",

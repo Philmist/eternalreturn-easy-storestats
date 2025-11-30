@@ -8,7 +8,7 @@ from collections import deque
 from typing import Callable, Iterable, Optional, Set
 
 from .api_client import EternalReturnAPIClient
-from .db import SQLiteStore, extract_uid, parse_start_time
+from .db import SQLiteStore, parse_start_time
 
 try:
     # Optional Parquet export; available when pyarrow is installed
@@ -34,6 +34,7 @@ class IngestionManager:
         progress_callback: Optional[Callable[[str], None]] = None,
         parquet_exporter: Optional["ParquetExporter"] = None,
         only_newer_games: bool = False,
+        prefer_nickname_fetch: bool = False,
     ) -> None:
         self.client = client
         self.store = store
@@ -43,6 +44,7 @@ class IngestionManager:
         self._progress_callback = progress_callback
         self._parquet = parquet_exporter
         self.only_newer_games = only_newer_games
+        self.prefer_nickname_fetch = prefer_nickname_fetch
 
     def _report(self, message: str) -> None:
         if self._progress_callback:
@@ -50,17 +52,26 @@ class IngestionManager:
         else:
             logger.info(message)
 
+    def _extract_uid(self, nickname: str) -> Optional[str]:
+        game_uid: Optional[str] = None if self.prefer_nickname_fetch else self.store.get_uid_from_nickname(nickname)
+        if not isinstance(game_uid, str):
+            uid_response = self.client.fetch_user_by_nickname(nickname)
+            game_uid = uid_response.get("user", {}).get("userId", None)
+        return game_uid
+
     def ingest_user(self, uid: str) -> Set[str]:
         """Ingest matches for a single user.
 
-        Returns a set of newly discovered user numbers from the processed games.
+        Returns a set of newly discovered UID from the processed games.
         """
 
         uid = str(uid)
         discovered: Set[str] = set()
         next_token: Optional[str] = None
         processed = 0
+
         self._report(f"Fetching games for uid {uid}")
+
         cutoff: Optional[dt.datetime] = None
         if self.only_newer_games:
             last_seen = self.store.get_user_last_seen(uid)
@@ -75,8 +86,6 @@ class IngestionManager:
             payload = self.client.fetch_user_games(uid, next_token)
             games = payload.get("userGames", [])
             for game in games:
-                if extract_uid(game) is None:
-                    game["uid"] = uid
                 if cutoff:
                     start_iso = parse_start_time(game.get("startDtm"))
                     if start_iso:
@@ -94,6 +103,10 @@ class IngestionManager:
                                 break
                 game_id = game.get("gameId")
                 game_already_known = bool(game_id and self.store.has_game(game_id))
+                game_uid = self._extract_uid(game.get("nickname", ""))
+                if game_uid is None:
+                    continue
+                game["uid"] = game_uid
                 self.store.upsert_from_game_payload(game)
                 if self._parquet is not None:
                     self._parquet.write_from_game_payload(game)
@@ -154,10 +167,11 @@ class IngestionManager:
         participants = payload.get("userGames", [])
         discovered: Set[str] = set()
         for participant in participants:
+            uid = self._extract_uid(participant.get("nickname", ""))
+            participant["uid"] = uid
             self.store.upsert_from_game_payload(participant)
             if self._parquet is not None:
                 self._parquet.write_from_game_payload(participant)
-            uid = extract_uid(participant)
             if uid is not None:
                 discovered.add(uid)
         self._report(f"Fetched {len(participants)} participants for game {game_id}")

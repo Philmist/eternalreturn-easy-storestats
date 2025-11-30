@@ -77,7 +77,9 @@ class _DummyClient:
 def test_cli_character_outputs_json(store, tmp_path, make_game, capsys):
     # Pre-populate DB with one record matching the context
     store.upsert_from_game_payload(
-        make_game(game_id=1, uid=1, character_num=1, game_rank=2)
+        make_game(
+            game_id=1, nickname="user-1", uid=1, character_num=1, game_rank=2
+        )
     )
     store.refresh_characters(
         [
@@ -120,6 +122,7 @@ def test_cli_character_aggregations_match_expected(store, make_game, capsys):
     ) -> None:
         game = make_game(
             game_id=game_id,
+            nickname=f"user-{uid}",
             uid=uid,
             character_num=character_num,
             game_rank=game_rank,
@@ -210,11 +213,25 @@ def test_cli_character_time_filter_via_args(store, make_game, capsys):
         ]
     )
 
-    early = make_game(game_id=1001, uid=1, character_num=1, game_rank=1, season_id=25)
+    early = make_game(
+        game_id=1001,
+        nickname="user-1",
+        uid=1,
+        character_num=1,
+        game_rank=1,
+        season_id=25,
+    )
     early["startDtm"] = "2025-11-24T00:00:00+00:00"
     store.upsert_from_game_payload(early)
 
-    late = make_game(game_id=1002, uid=2, character_num=2, game_rank=2, season_id=25)
+    late = make_game(
+        game_id=1002,
+        nickname="user-2",
+        uid=2,
+        character_num=2,
+        game_rank=2,
+        season_id=25,
+    )
     late["startDtm"] = "2025-11-25T00:00:00+00:00"
     store.upsert_from_game_payload(late)
 
@@ -251,6 +268,7 @@ def test_cli_patch_latest_picks_highest_version(store, make_game, capsys):
     )
     g1 = make_game(
         game_id=2001,
+        nickname="user-10",
         uid=10,
         character_num=1,
         game_rank=1,
@@ -261,6 +279,7 @@ def test_cli_patch_latest_picks_highest_version(store, make_game, capsys):
 
     g2 = make_game(
         game_id=2002,
+        nickname="user-11",
         uid=11,
         character_num=2,
         game_rank=2,
@@ -363,6 +382,7 @@ def test_cli_equipment_aggregations_match_expected(store, make_game, capsys):
     # Two matches; item 101101 is used twice, 101102 once.
     game1 = make_game(
         game_id=1,
+        nickname="user-1",
         uid=1,
         character_num=1,
         game_rank=1,
@@ -373,6 +393,7 @@ def test_cli_equipment_aggregations_match_expected(store, make_game, capsys):
 
     game2 = make_game(
         game_id=2,
+        nickname="user-2",
         uid=2,
         character_num=2,
         game_rank=3,
@@ -483,6 +504,7 @@ def test_cli_bot_aggregations_match_expected(store, make_game, capsys):
     ) -> None:
         game = make_game(
             game_id=game_id,
+            nickname=f"user-{uid}",
             uid=uid,
             character_num=character_num,
             game_rank=game_rank,
@@ -599,6 +621,7 @@ def test_cli_mmr_aggregations_match_expected(store, make_game, capsys):
     store.upsert_from_game_payload(
         make_game(
             game_id=1,
+            nickname="user-1",
             uid=1,
             character_num=1,
             game_rank=2,
@@ -609,6 +632,7 @@ def test_cli_mmr_aggregations_match_expected(store, make_game, capsys):
     store.upsert_from_game_payload(
         make_game(
             game_id=2,
+            nickname="user-2",
             uid=2,
             character_num=1,
             game_rank=1,
@@ -619,6 +643,7 @@ def test_cli_mmr_aggregations_match_expected(store, make_game, capsys):
     store.upsert_from_game_payload(
         make_game(
             game_id=3,
+            nickname="user-3",
             uid=3,
             character_num=1,
             game_rank=3,
@@ -666,6 +691,7 @@ def test_cli_mode_accepts_string_and_infers_team_mode(store, make_game, capsys):
     store.upsert_from_game_payload(
         make_game(
             game_id=1,
+            nickname="user-1",
             uid=1,
             character_num=1,
             game_rank=1,
@@ -703,6 +729,7 @@ def test_cli_default_season_ranked_uses_latest(store, make_game, capsys):
     store.upsert_from_game_payload(
         make_game(
             game_id=1,
+            nickname="user-1",
             uid=1,
             character_num=1,
             game_rank=1,
@@ -714,6 +741,7 @@ def test_cli_default_season_ranked_uses_latest(store, make_game, capsys):
     store.upsert_from_game_payload(
         make_game(
             game_id=2,
+            nickname="user-1",
             uid=1,
             character_num=1,
             game_rank=1,
@@ -752,6 +780,7 @@ def test_cli_default_season_non_ranked_is_zero(store, make_game, capsys):
     store.upsert_from_game_payload(
         make_game(
             game_id=1,
+            nickname="user-1",
             uid=1,
             character_num=1,
             matching_mode=2,
@@ -794,6 +823,7 @@ def test_cli_team_stats_include_all_servers_and_names(store, make_game, capsys):
     ) -> None:
         game = make_game(
             game_id=game_id,
+            nickname=f"user-{uid}",
             uid=uid,
             character_num=character_num,
             game_rank=game_rank,

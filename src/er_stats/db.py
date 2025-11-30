@@ -12,14 +12,11 @@ ISO_FORMAT = "%Y-%m-%dT%H:%M:%S%z"
 
 
 def extract_uid(payload: Dict[str, Any]) -> Optional[str]:
-    """Return the UID for a user payload, falling back to nickname when absent."""
+    """Return the UID for a user payload. Return None when absent."""
 
     uid = payload.get("uid") or payload.get("userId") or payload.get("user_id")
     if isinstance(uid, str) and uid:
         return uid
-    nickname = payload.get("nickname")
-    if isinstance(nickname, str) and nickname:
-        return nickname
     return None
 
 
@@ -94,7 +91,8 @@ class SQLiteStore:
                     last_seen TEXT,
                     last_mmr INTEGER,
                     ml_bot INTEGER DEFAULT 0,
-                    last_language TEXT
+                    last_language TEXT,
+                    deleted INTEGER DEFAULT 0
                 );
 
                 CREATE TABLE IF NOT EXISTS matches (
@@ -204,12 +202,16 @@ class SQLiteStore:
 
                 CREATE INDEX IF NOT EXISTS idx_user_match_user
                     ON user_match_stats (uid);
+
+                CREATE INDEX IF NOT EXISTS idx_users_nickname
+                    ON users (nickname, unixepoch(last_seen, 'auto'))
+                    WHERE deleted = 0;
                 """
             )
         self.connection.commit()
 
     def upsert_user(self, game: Dict[str, Any]) -> None:
-        uid = extract_uid(game)
+        uid = game.get("uid")
         if uid is None:
             return
         nickname = game.get("nickname")
@@ -556,7 +558,7 @@ class SQLiteStore:
 
     def get_user_last_seen(self, uid: str) -> Optional[str]:
         with self.cursor() as cur:
-            cur.execute("SELECT last_seen FROM users WHERE uid=?", (uid,))
+            cur.execute("SELECT last_seen FROM users WHERE uid=? AND deleted = 0", (uid,))
             row = cur.fetchone()
             return row["last_seen"] if row else None
 
@@ -568,5 +570,15 @@ class SQLiteStore:
     def transaction(self) -> sqlite3.Connection:
         return self.connection
 
+    def get_uid_from_nickname(self, nickname: str) -> Optional[str]:
+        """Fetch UID by nickname from DB.
 
-__all__ = ["SQLiteStore", "extract_uid", "parse_start_time"]
+        This method returns exact one uid from nickname when nickname has been stored.
+        """
+        with self.cursor() as cur:
+            cur.execute("SELECT uid FROM users WHERE nickname=? AND deleted = 0 ORDER BY unixepoch(last_seen, 'auto') DESC LIMIT 1", (nickname,))
+            uids = [row["uid"] for row in cur.fetchall()]
+            return uids[0] if len(uids) > 0 else None
+
+
+__all__ = ["SQLiteStore", "parse_start_time"]

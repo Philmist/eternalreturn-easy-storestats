@@ -13,6 +13,7 @@ class _FakeClient:
         self.pages = pages
         self.participants = participants
         self.mapping = mapping
+        self.fetch_user_games_uids: list[str] = []
 
     def fetch_user_by_nickname(self, nickname: str) -> Dict[str, Any]:
         uid = self.mapping.get(nickname)
@@ -27,6 +28,7 @@ class _FakeClient:
     def fetch_user_games(
         self, uid: str, next_token: Optional[str] = None
     ) -> Dict[str, Any]:
+        self.fetch_user_games_uids.append(uid)
         if next_token is None:
             return self.pages[0]
         return self.pages[1]
@@ -42,20 +44,26 @@ class _FakeClient:
 
 
 def _make_pages(make_game, seed_uid: str):
-    g1 = make_game(game_id=1, uid=seed_uid)
-    g2 = make_game(game_id=2, uid=seed_uid)
+    g1 = make_game(game_id=1, nickname="Alice")
+    g2 = make_game(game_id=2, nickname="Alice")
     pages = [
         {"userGames": [g1], "next": "tok"},
         {"userGames": [g2]},
     ]
-    p1_a = make_game(game_id=1, uid="uid-200")
-    p1_b = make_game(game_id=1, uid="uid-201")
-    p2_a = make_game(game_id=2, uid="uid-300")
+    p1_a = make_game(game_id=1, nickname="Bob")
+    p1_b = make_game(game_id=1, nickname="Carol")
+    p2_a = make_game(game_id=2, nickname="Dave")
     participants = {
         1: {"userGames": [p1_a, p1_b]},
         2: {"userGames": [p2_a]},
     }
-    return pages, participants
+    mapping = {
+        "Alice": seed_uid,
+        "Bob": "uid-200",
+        "Carol": "uid-201",
+        "Dave": "uid-300",
+    }
+    return pages, participants, mapping
 
 
 def test_cli_ingest_with_nickname(monkeypatch, store, make_game, tmp_path):
@@ -63,7 +71,7 @@ def test_cli_ingest_with_nickname(monkeypatch, store, make_game, tmp_path):
     from er_stats import cli as cli_mod
 
     seed_uid = "uid-500"
-    pages, participants = _make_pages(make_game, seed_uid)
+    pages, participants, mapping = _make_pages(make_game, seed_uid)
 
     def _fake_ctor(
         base_url: str,
@@ -74,7 +82,7 @@ def test_cli_ingest_with_nickname(monkeypatch, store, make_game, tmp_path):
         min_interval: float = 1.0,
         max_retries: int = 3,
     ):
-        return _FakeClient(pages, participants, {"Alice": seed_uid})
+        return _FakeClient(pages, participants, mapping)
 
     monkeypatch.setattr(cli_mod, "EternalReturnAPIClient", _fake_ctor)
 

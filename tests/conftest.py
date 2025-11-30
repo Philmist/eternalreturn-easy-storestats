@@ -28,8 +28,7 @@ def store(tmp_path):
 def _make_game(
     *,
     game_id: int,
-    uid: str | None = None,
-    user_num: int | None = None,
+    nickname: str,
     season_id: int = 25,
     server_name: str = "NA",
     matching_mode: int = 3,
@@ -38,12 +37,8 @@ def _make_game(
     game_rank: int = 3,
     mmr_gain: int = 10,
     mlbot: bool | None = None,
+    uid: str | None = None,
 ) -> Dict[str, Any]:
-    if uid is None and user_num is not None:
-        uid = str(user_num)
-    if uid is None:
-        uid = "uid-unknown"
-    uid = str(uid)
     payload: Dict[str, Any] = {
         "gameId": game_id,
         "seasonId": season_id,
@@ -55,8 +50,9 @@ def _make_game(
         "versionMinor": 0,
         "startDtm": "2025-10-27T23:24:03.003+0900",
         "duration": 900,
-        "uid": uid,
-        "nickname": f"user{uid}",
+        # game json doesn't have UID now.
+        # "uid": uid,
+        "nickname": str(nickname),
         "mmrAfter": 1200,
         "language": "en",
         "characterNum": character_num,
@@ -92,6 +88,8 @@ def _make_game(
     }
     if mlbot is not None:
         payload["mlbot"] = mlbot
+    if uid is not None:
+        payload["uid"] = str(uid)
     return payload
 
 
