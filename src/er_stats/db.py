@@ -566,7 +566,9 @@ class SQLiteStore:
 
     def get_user_last_seen(self, uid: str) -> Optional[str]:
         with self.cursor() as cur:
-            cur.execute("SELECT last_seen FROM users WHERE uid=? AND deleted = 0", (uid,))
+            cur.execute(
+                "SELECT last_seen FROM users WHERE uid=? AND deleted = 0", (uid,)
+            )
             row = cur.fetchone()
             return row["last_seen"] if row else None
 
@@ -586,7 +588,10 @@ class SQLiteStore:
         if not isinstance(nickname, str):
             return None
         with self.cursor() as cur:
-            cur.execute("SELECT uid FROM users WHERE nickname=? AND deleted = 0 ORDER BY unixepoch(last_seen, 'auto') DESC LIMIT 1", (nickname,))
+            cur.execute(
+                "SELECT uid FROM users WHERE nickname=? AND deleted = 0 ORDER BY unixepoch(last_seen, 'auto') DESC LIMIT 1",
+                (nickname,),
+            )
             uids = [row["uid"] for row in cur.fetchall()]
             return uids[0] if len(uids) > 0 else None
 

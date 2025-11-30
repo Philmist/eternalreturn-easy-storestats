@@ -10,7 +10,10 @@ pytest.importorskip("pyarrow")
 
 class _FakeClient:
     def __init__(
-        self, pages: list[Dict[str, Any]], participants: Dict[int, Dict[str, Any]], mapping: Dict[str, str]
+        self,
+        pages: list[Dict[str, Any]],
+        participants: Dict[int, Dict[str, Any]],
+        mapping: Dict[str, str],
     ):
         self.pages = pages
         self.participants = participants

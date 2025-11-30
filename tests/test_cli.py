@@ -77,9 +77,7 @@ class _DummyClient:
 def test_cli_character_outputs_json(store, tmp_path, make_game, capsys):
     # Pre-populate DB with one record matching the context
     store.upsert_from_game_payload(
-        make_game(
-            game_id=1, nickname="user-1", uid=1, character_num=1, game_rank=2
-        )
+        make_game(game_id=1, nickname="user-1", uid=1, character_num=1, game_rank=2)
     )
     store.refresh_characters(
         [

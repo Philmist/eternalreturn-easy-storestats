@@ -53,7 +53,11 @@ class IngestionManager:
             logger.info(message)
 
     def _extract_uid(self, nickname: str) -> Optional[str]:
-        game_uid: Optional[str] = None if self.prefer_nickname_fetch else self.store.get_uid_from_nickname(nickname)
+        game_uid: Optional[str] = (
+            None
+            if self.prefer_nickname_fetch
+            else self.store.get_uid_from_nickname(nickname)
+        )
         if not isinstance(game_uid, str):
             uid_response = self.client.fetch_user_by_nickname(nickname)
             game_uid = uid_response.get("user", {}).get("userId", None)

@@ -14,19 +14,13 @@ def test_aggregations_basic(store, make_game):
 
     # Two users, two characters, different ranks and equipment
     store.upsert_from_game_payload(
-        make_game(
-            game_id=1, nickname="user-10", uid=10, character_num=1, game_rank=2
-        )
+        make_game(game_id=1, nickname="user-10", uid=10, character_num=1, game_rank=2)
     )
     store.upsert_from_game_payload(
-        make_game(
-            game_id=2, nickname="user-11", uid=11, character_num=1, game_rank=4
-        )
+        make_game(game_id=2, nickname="user-11", uid=11, character_num=1, game_rank=4)
     )
     store.upsert_from_game_payload(
-        make_game(
-            game_id=3, nickname="user-12", uid=12, character_num=2, game_rank=1
-        )
+        make_game(game_id=3, nickname="user-12", uid=12, character_num=2, game_rank=1)
     )
 
     store.refresh_characters(
