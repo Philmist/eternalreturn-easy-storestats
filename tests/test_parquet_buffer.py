@@ -9,8 +9,9 @@ from er_stats.ingest import IngestionManager
 pytest.importorskip("pyarrow")
 
 
-def _make_participant(make_game, *, game_id: int, user_num: int) -> Dict[str, Any]:
-    return make_game(game_id=game_id, user_num=user_num)
+def _make_participant(make_game, *, game_id: int, uid: int) -> Dict[str, Any]:
+    nickname = f"user-{uid}"
+    return make_game(game_id=game_id, nickname=nickname, uid=str(uid))
 
 
 def test_exporter_buffers_and_flushes(tmp_path, make_game):
@@ -19,7 +20,7 @@ def test_exporter_buffers_and_flushes(tmp_path, make_game):
     exp = ParquetExporter(out, flush_rows=2)
 
     # Five rows in the same partition (season/server/mode/date)
-    rows = [_make_participant(make_game, game_id=1, user_num=100 + i) for i in range(5)]
+    rows = [_make_participant(make_game, game_id=1, uid=100 + i) for i in range(5)]
     for r in rows:
         exp.write_from_game_payload(r)
     exp.close()
@@ -50,19 +51,34 @@ def test_cli_parquet_compact_merges_small_files(
     pages = [
         {
             "userGames": [
-                make_game(game_id=1, user_num=100),
-                make_game(game_id=2, user_num=100),
+                make_game(game_id=1, nickname="Alice"),
+                make_game(game_id=2, nickname="Alice"),
             ]
         }
     ]
-    participants = {1: {"userGames": [make_game(game_id=1, user_num=200)]}}
+    participants = {1: {"userGames": [make_game(game_id=1, nickname="Bob")]}}
+    mapping = {
+        "Alice": "uid-100",
+        "Bob": "uid-200",
+    }
 
     class _FakeClient:
-        def __init__(self, pages, participants):
+        def __init__(self, pages, participants, mapping):
             self.pages = pages
             self.participants = participants
+            self.mapping = mapping
 
-        def fetch_user_games(self, user_num, next_token=None):
+        def fetch_user_by_nickname(self, nickname):
+            uid = self.mapping.get(nickname)
+            if uid is None:
+                raise RuntimeError("user not found")
+            return {
+                "code": 200,
+                "message": "Success",
+                "user": {"userId": uid, "nickname": nickname},
+            }
+
+        def fetch_user_games(self, uid, next_token=None):
             return self.pages[0]
 
         def fetch_game_result(self, game_id):
@@ -71,9 +87,9 @@ def test_cli_parquet_compact_merges_small_files(
         def close(self):
             return None
 
-    client = _FakeClient(pages, participants)
+    client = _FakeClient(pages, participants, mapping)
     manager = IngestionManager(client, store, parquet_exporter=exp)
-    manager.ingest_user(100)
+    manager.ingest_user(mapping["Alice"])
     exp.close()
 
     # Sanity: many small files exist at src

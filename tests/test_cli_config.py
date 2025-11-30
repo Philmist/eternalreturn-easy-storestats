@@ -20,11 +20,17 @@ class _RecorderClient:
     def fetch_user_by_nickname(self, nickname: str) -> dict:
         return {
             "user": {
-                "userNum": 999999,
+                "userId": "uid-from-nick",
             },
         }
 
     def fetch_character_attributes(self) -> dict:
+        return {"data": []}
+
+    def fetch_item_armor(self) -> dict:
+        return {"data": []}
+
+    def fetch_item_weapon(self) -> dict:
         return {"data": []}
 
     def close(self) -> None:
@@ -48,7 +54,6 @@ max_retries = 5
 only_newer_games = false
 
 [ingest.seeds]
-users = [111]
 nicknames = ["FromConfig"]
 
 [auth]
@@ -84,7 +89,7 @@ api_key_env = "ER_API_KEY"
     assert recorded_kwargs["max_games_per_user"] == 50
     assert recorded_kwargs["only_newer_games"] is False
     assert recorded_kwargs["depth"] == 2
-    assert recorded_kwargs["seeds"] == [111, 999999]
+    assert recorded_kwargs["seeds"] == ["FromConfig"]
 
     client = recorded_kwargs.get("client")
     assert client is not None
@@ -107,7 +112,7 @@ max_games_per_user = 50
 only_newer_games = true
 
 [ingest.seeds]
-users = [1]
+nicknames = ["FromConfig"]
 """.format(db_path=str(config_db).replace("\\", "\\\\"))
     config_path.write_text(config_text, encoding="utf-8")
 
@@ -132,12 +137,12 @@ users = [1]
             "--max-games",
             "10",
             "--include-older-games",
-            "--user",
-            "2",
+            "--nickname",
+            "CliNick",
         ]
     )
 
     assert code == 0
     assert recorded_kwargs["max_games_per_user"] == 10
     assert recorded_kwargs["only_newer_games"] is False
-    assert recorded_kwargs["seeds"] == [1, 2]
+    assert recorded_kwargs["seeds"] == ["FromConfig", "CliNick"]

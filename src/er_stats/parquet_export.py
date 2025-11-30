@@ -17,12 +17,15 @@ from collections import defaultdict
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from .db import parse_start_time
+from .db import extract_uid, parse_start_time
 
 # Fixed schemas to ensure consistent types across files
 MATCH_SCHEMA = pa.schema(
     [
         pa.field("game_id", pa.int64()),
+        pa.field("season_id", pa.int32()),
+        pa.field("matching_mode", pa.int32()),
+        pa.field("matching_team_mode", pa.int32()),
         pa.field("version_season", pa.int64()),
         pa.field("version_major", pa.int64()),
         pa.field("version_minor", pa.int64()),
@@ -35,7 +38,7 @@ MATCH_SCHEMA = pa.schema(
 PARTICIPANT_SCHEMA = pa.schema(
     [
         pa.field("game_id", pa.int64()),
-        pa.field("user_num", pa.int64()),
+        pa.field("uid", pa.string()),
         pa.field("character_num", pa.int64()),
         pa.field("skin_code", pa.int64()),
         pa.field("game_rank", pa.int64()),
@@ -59,6 +62,9 @@ PARTICIPANT_SCHEMA = pa.schema(
         pa.field("premade", pa.int64()),
         pa.field("language", pa.string()),
         pa.field("ml_bot", pa.int64()),
+        pa.field("season_id", pa.int32()),
+        pa.field("matching_mode", pa.int32()),
+        pa.field("matching_team_mode", pa.int32()),
         pa.field("server_name", pa.string()),
         # Extended scalar stats
         pa.field("mmr_before", pa.int64()),
@@ -193,6 +199,15 @@ def _safe_float(value: Any) -> Optional[float]:
         return None
 
 
+def _safe_str(value: Any) -> Optional[str]:
+    try:
+        if value is None:
+            return None
+        return str(value)
+    except Exception:
+        return None
+
+
 def _safe_list_int(value: Any) -> Optional[List[Optional[int]]]:
     if value is None:
         return None
@@ -240,7 +255,7 @@ class ParquetExporter:
         self.matches_root.mkdir(parents=True, exist_ok=True)
         self.participants_root.mkdir(parents=True, exist_ok=True)
         self._seen_matches: Set[int] = set()
-        self._seen_participants: Set[Tuple[int, int]] = set()
+        self._seen_participants: Set[Tuple[int, str]] = set()
         self._flush_rows = int(flush_rows)
         self._compression = compression
         # Buffers keyed by (season_id, server_name, matching_mode, date)
@@ -302,8 +317,8 @@ class ParquetExporter:
         """
 
         game_id = _safe_int(game.get("gameId"))
-        user_num = _safe_int(game.get("userNum"))
-        if game_id is None or user_num is None:
+        uid = extract_uid(game)
+        if game_id is None or uid is None:
             return
 
         key = self._partition_key(game)
@@ -323,6 +338,9 @@ class ParquetExporter:
     ) -> None:
         row = {
             "game_id": _safe_int(game.get("gameId")),
+            "season_id": _safe_int(game.get("seasonId")),
+            "matching_mode": _safe_int(game.get("matchingMode")),
+            "matching_team_mode": _safe_int(game.get("matchingTeamMode")),
             "version_season": _safe_int(game.get("versionSeason")),
             "version_major": _safe_int(game.get("versionMajor")),
             "version_minor": _safe_int(game.get("versionMinor")),
@@ -343,8 +361,10 @@ class ParquetExporter:
 
     def _enqueue_participant(self, game: Dict[str, Any]) -> None:
         game_id = _safe_int(game.get("gameId"))
-        user_num = _safe_int(game.get("userNum"))
-        dup_key = (game_id or -1, user_num or -1)
+        uid = extract_uid(game)
+        if game_id is None or uid is None:
+            return
+        dup_key = (game_id, uid)
         if dup_key in self._seen_participants:
             return
         self._seen_participants.add(dup_key)
@@ -352,7 +372,7 @@ class ParquetExporter:
         row = {
             # Identifiers
             "game_id": game_id,
-            "user_num": user_num,
+            "uid": _safe_str(uid),
             # Core stats mirrored from the SQLite schema along with key combat totals
             "character_num": _safe_int(game.get("characterNum")),
             "skin_code": _safe_int(game.get("skinCode")),
@@ -376,6 +396,9 @@ class ParquetExporter:
             "team_number": _safe_int(game.get("teamNumber")),
             "premade": _safe_int(game.get("preMade")),
             "language": str(game.get("language") or ""),
+            "season_id": _safe_int(game.get("seasonId")),
+            "matching_mode": _safe_int(game.get("matchingMode")),
+            "matching_team_mode": _safe_int(game.get("matchingTeamMode")),
             "server_name": str(game.get("serverName") or ""),
         }
         # ML bot flag may be present under different keys; standardize to int 0/1

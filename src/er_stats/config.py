@@ -77,6 +77,7 @@ def load_ingest_config(path: Path) -> Mapping[str, Any]:
             result.append(item)
         return result
 
+    uids = _as_str_list(seeds.get("uids"), "ingest.seeds.uids")
     users = _as_int_list(seeds.get("users"), "ingest.seeds.users")
     nicknames = _as_str_list(seeds.get("nicknames"), "ingest.seeds.nicknames")
 
@@ -93,6 +94,7 @@ def load_ingest_config(path: Path) -> Mapping[str, Any]:
         "raw": raw,
         "ingest": ingest,
         "seeds": {
+            "uids": uids,
             "users": users,
             "nicknames": nicknames,
         },

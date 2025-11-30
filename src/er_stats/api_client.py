@@ -49,11 +49,11 @@ class EternalReturnAPIClient:
         return headers
 
     def fetch_user_games(
-        self, user_num: int, next_token: Optional[str] = None
+        self, uid: str, next_token: Optional[str] = None
     ) -> Dict[str, Any]:
         """Fetch the paginated match list for the given user."""
 
-        url = f"{self.base_url}/v1/user/games/{user_num}"
+        url = f"{self.base_url}/v1/user/games/uid/{uid}"
         if next_token is not None and type(next_token) is not str:
             next_token = str(next_token)
         headers = self._headers({"next": next_token} if next_token else None)
@@ -69,7 +69,7 @@ class EternalReturnAPIClient:
         """Resolve a user's public nickname to their user record.
 
         Returns the API payload which includes at least:
-          {"code": 200, "message": "Success", "user": {"userNum": int, "nickname": str}}
+          {"code": 200, "message": "Success", "user": {"userId": str, "nickname": str}}
 
         Raises for non-2xx responses.
         """
@@ -109,12 +109,12 @@ class EternalReturnAPIClient:
 
         self.session.close()
 
-    def iter_user_games(self, user_num: int) -> Iterable[Dict[str, Any]]:
+    def iter_user_games(self, uid: str) -> Iterable[Dict[str, Any]]:
         """Iterate through all available games for a user."""
 
         next_token: Optional[str] = None
         while True:
-            payload = self.fetch_user_games(user_num, next_token)
+            payload = self.fetch_user_games(uid, next_token)
             for game in payload.get("userGames", []):
                 yield game
             next_token = payload.get("next")
@@ -149,8 +149,8 @@ class EternalReturnAPIClient:
             response = self.session.get(url, headers=headers, timeout=self.timeout)
 
             status = getattr(response, "status_code", None)
-            # Handle 429 Too Many Requests with basic backoff
-            if status == 429:
+            # Handle 429 Too Many Requests (and 403 when used as rate-limit) with basic backoff
+            if status in (403, 429):
                 # Honor Retry-After if present; default to min_interval
                 retry_after = None
                 try:

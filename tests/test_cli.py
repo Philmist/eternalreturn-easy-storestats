@@ -77,7 +77,7 @@ class _DummyClient:
 def test_cli_character_outputs_json(store, tmp_path, make_game, capsys):
     # Pre-populate DB with one record matching the context
     store.upsert_from_game_payload(
-        make_game(game_id=1, user_num=1, character_num=1, game_rank=2)
+        make_game(game_id=1, nickname="user-1", uid=1, character_num=1, game_rank=2)
     )
     store.refresh_characters(
         [
@@ -113,14 +113,15 @@ def test_cli_character_aggregations_match_expected(store, make_game, capsys):
     # Reuse the three-match, two-team, team-of-three scenario with team_mode=3.
     def add_player(
         game_id: int,
-        user_num: int,
+        uid: int,
         character_num: int,
         game_rank: int,
         team_number: int,
     ) -> None:
         game = make_game(
             game_id=game_id,
-            user_num=user_num,
+            nickname=f"user-{uid}",
+            uid=uid,
             character_num=character_num,
             game_rank=game_rank,
             matching_team_mode=3,
@@ -211,13 +212,23 @@ def test_cli_character_time_filter_via_args(store, make_game, capsys):
     )
 
     early = make_game(
-        game_id=1001, user_num=1, character_num=1, game_rank=1, season_id=25
+        game_id=1001,
+        nickname="user-1",
+        uid=1,
+        character_num=1,
+        game_rank=1,
+        season_id=25,
     )
     early["startDtm"] = "2025-11-24T00:00:00+00:00"
     store.upsert_from_game_payload(early)
 
     late = make_game(
-        game_id=1002, user_num=2, character_num=2, game_rank=2, season_id=25
+        game_id=1002,
+        nickname="user-2",
+        uid=2,
+        character_num=2,
+        game_rank=2,
+        season_id=25,
     )
     late["startDtm"] = "2025-11-25T00:00:00+00:00"
     store.upsert_from_game_payload(late)
@@ -255,7 +266,8 @@ def test_cli_patch_latest_picks_highest_version(store, make_game, capsys):
     )
     g1 = make_game(
         game_id=2001,
-        user_num=10,
+        nickname="user-10",
+        uid=10,
         character_num=1,
         game_rank=1,
         season_id=25,
@@ -265,7 +277,8 @@ def test_cli_patch_latest_picks_highest_version(store, make_game, capsys):
 
     g2 = make_game(
         game_id=2002,
-        user_num=11,
+        nickname="user-11",
+        uid=11,
         character_num=2,
         game_rank=2,
         season_id=26,
@@ -367,7 +380,8 @@ def test_cli_equipment_aggregations_match_expected(store, make_game, capsys):
     # Two matches; item 101101 is used twice, 101102 once.
     game1 = make_game(
         game_id=1,
-        user_num=1,
+        nickname="user-1",
+        uid=1,
         character_num=1,
         game_rank=1,
         matching_team_mode=3,
@@ -377,7 +391,8 @@ def test_cli_equipment_aggregations_match_expected(store, make_game, capsys):
 
     game2 = make_game(
         game_id=2,
-        user_num=2,
+        nickname="user-2",
+        uid=2,
         character_num=2,
         game_rank=3,
         matching_team_mode=3,
@@ -477,7 +492,7 @@ def test_cli_bot_aggregations_match_expected(store, make_game, capsys):
 
     def add_player(
         game_id: int,
-        user_num: int,
+        uid: int,
         character_num: int,
         game_rank: int,
         team_number: int,
@@ -487,7 +502,8 @@ def test_cli_bot_aggregations_match_expected(store, make_game, capsys):
     ) -> None:
         game = make_game(
             game_id=game_id,
-            user_num=user_num,
+            nickname=f"user-{uid}",
+            uid=uid,
             character_num=character_num,
             game_rank=game_rank,
             matching_team_mode=3,
@@ -603,7 +619,8 @@ def test_cli_mmr_aggregations_match_expected(store, make_game, capsys):
     store.upsert_from_game_payload(
         make_game(
             game_id=1,
-            user_num=1,
+            nickname="user-1",
+            uid=1,
             character_num=1,
             game_rank=2,
             matching_team_mode=3,
@@ -613,7 +630,8 @@ def test_cli_mmr_aggregations_match_expected(store, make_game, capsys):
     store.upsert_from_game_payload(
         make_game(
             game_id=2,
-            user_num=2,
+            nickname="user-2",
+            uid=2,
             character_num=1,
             game_rank=1,
             matching_team_mode=3,
@@ -623,7 +641,8 @@ def test_cli_mmr_aggregations_match_expected(store, make_game, capsys):
     store.upsert_from_game_payload(
         make_game(
             game_id=3,
-            user_num=3,
+            nickname="user-3",
+            uid=3,
             character_num=1,
             game_rank=3,
             matching_team_mode=3,
@@ -670,7 +689,8 @@ def test_cli_mode_accepts_string_and_infers_team_mode(store, make_game, capsys):
     store.upsert_from_game_payload(
         make_game(
             game_id=1,
-            user_num=1,
+            nickname="user-1",
+            uid=1,
             character_num=1,
             game_rank=1,
             matching_mode=6,
@@ -707,7 +727,8 @@ def test_cli_default_season_ranked_uses_latest(store, make_game, capsys):
     store.upsert_from_game_payload(
         make_game(
             game_id=1,
-            user_num=1,
+            nickname="user-1",
+            uid=1,
             character_num=1,
             game_rank=1,
             matching_team_mode=3,
@@ -718,7 +739,8 @@ def test_cli_default_season_ranked_uses_latest(store, make_game, capsys):
     store.upsert_from_game_payload(
         make_game(
             game_id=2,
-            user_num=1,
+            nickname="user-1",
+            uid=1,
             character_num=1,
             game_rank=1,
             matching_team_mode=3,
@@ -756,7 +778,8 @@ def test_cli_default_season_non_ranked_is_zero(store, make_game, capsys):
     store.upsert_from_game_payload(
         make_game(
             game_id=1,
-            user_num=1,
+            nickname="user-1",
+            uid=1,
             character_num=1,
             matching_mode=2,
             matching_team_mode=3,
@@ -791,14 +814,15 @@ def test_cli_team_stats_include_all_servers_and_names(store, make_game, capsys):
     def add_player(
         game_id: int,
         team_number: int,
-        user_num: int,
+        uid: int,
         character_num: int,
         game_rank: int,
         server_name: str,
     ) -> None:
         game = make_game(
             game_id=game_id,
-            user_num=user_num,
+            nickname=f"user-{uid}",
+            uid=uid,
             character_num=character_num,
             game_rank=game_rank,
             matching_team_mode=3,
@@ -902,15 +926,15 @@ def test_cli_ingest_only_newer_games_enabled_by_default(monkeypatch, store):
             "ingest",
             "--base-url",
             "https://example.invalid",
-            "--user",
-            "12345",
+            "--nickname",
+            "seeduser",
         ]
     )
 
     assert code == 0
     assert recorded_kwargs["only_newer_games"] is True
     assert recorded_kwargs["max_games_per_user"] is None
-    assert recorded_kwargs["seeds"] == [12345]
+    assert recorded_kwargs["seeds"] == ["seeduser"]
     client = _DummyClient.last_instance
     assert client is not None
     assert client.fetch_character_attributes_calls == 1
@@ -945,15 +969,15 @@ def test_cli_ingest_can_include_older_games(monkeypatch, store):
             "ingest",
             "--base-url",
             "https://example.invalid",
-            "--user",
-            "777",
+            "--nickname",
+            "seeduser",
             "--include-older-games",
         ]
     )
 
     assert code == 0
     assert recorded_kwargs["only_newer_games"] is False
-    assert recorded_kwargs["seeds"] == [777]
+    assert recorded_kwargs["seeds"] == ["seeduser"]
     client = _DummyClient.last_instance
     assert client is not None
     assert client.fetch_character_attributes_calls == 1
@@ -982,8 +1006,8 @@ def test_cli_ingest_require_metadata_refresh_success(monkeypatch, store):
             "ingest",
             "--base-url",
             "https://example.invalid",
-            "--user",
-            "12345",
+            "--nickname",
+            "seeduser",
             "--require-metadata-refresh",
         ]
     )
@@ -1018,8 +1042,8 @@ def test_cli_ingest_require_metadata_refresh_fails_on_error(monkeypatch, store):
             "ingest",
             "--base-url",
             "https://example.invalid",
-            "--user",
-            "12345",
+            "--nickname",
+            "seeduser",
             "--require-metadata-refresh",
         ]
     )
@@ -1056,8 +1080,8 @@ def test_cli_ingest_require_metadata_refresh_fails_on_character_error(
             "ingest",
             "--base-url",
             "https://example.invalid",
-            "--user",
-            "12345",
+            "--nickname",
+            "seeduser",
             "--require-metadata-refresh",
         ]
     )

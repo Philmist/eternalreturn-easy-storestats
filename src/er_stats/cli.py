@@ -106,12 +106,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     ingest_parser.add_argument("--api-key", help="API key for authentication")
     ingest_parser.add_argument(
-        "--user",
-        dest="users",
-        type=int,
+        "--uid",
+        dest="uids",
+        type=str,
         action="append",
         required=False,
-        help="Seed user number. Specify multiple times for several seeds.",
+        help="Seed user UID (userId). Specify multiple times for several seeds.",
     )
     ingest_parser.add_argument(
         "--nickname",
@@ -119,7 +119,7 @@ def _build_parser() -> argparse.ArgumentParser:
         type=str,
         action="append",
         required=False,
-        help="Public nickname to resolve to userNum. Repeatable.",
+        help="Public nickname to resolve to uid. Repeatable.",
     )
     ingest_parser.add_argument(
         "--depth", type=int, default=1, help="Recursive depth for user discovery"
@@ -543,6 +543,17 @@ def _run_ingest(
     base_url = ingest_table.get("base_url", args.base_url)
     min_interval = ingest_table.get("min_interval", args.min_interval)
     max_retries = ingest_table.get("max_retries", args.max_retries)
+
+    if args.uids:
+        ingest_logger.error("--uid is no longer supported. Use --nickname instead.")
+        return 2
+    config_uids = seeds_cfg.get("uids") or seeds_cfg.get("users")
+    if config_uids:
+        ingest_logger.error(
+            "Config seeds.uids/users are no longer supported. Use seeds.nicknames."
+        )
+        return 2
+
     api_key = args.api_key
     if api_key is None:
         api_key_env_name = auth_cfg.get("api_key_env")
@@ -578,29 +589,13 @@ def _run_ingest(
             parquet_exporter = ParquetExporter(parquet_dir_value)
         except Exception as e:
             ingest_logger.warning("Parquet export disabled: %s", e)
-    seed_users = list(seeds_cfg.get("users", []))
-    if args.users:
-        seed_users.extend(args.users)
     nickname_sources = list(seeds_cfg.get("nicknames", []))
     if args.nicknames:
         nickname_sources.extend(args.nicknames)
     if nickname_sources:
         ingest_logger.info("Try to resolve nickname(s).")
-        for nick in nickname_sources:
-            try:
-                payload = client.fetch_user_by_nickname(nick)
-                user = payload.get("user") or {}
-                user_num = user.get("userNum")
-                if not isinstance(user_num, int):
-                    raise ValueError(
-                        f"Nickname '{nick}' did not resolve to a valid userNum"
-                    )
-                seed_users.append(user_num)
-            except Exception as e:
-                ingest_logger.error("Failed to resolve nickname '%s': %s", nick, e)
-                return 2
-    if not seed_users:
-        ingest_logger.error("No seeds provided. Specify at least --user or --nickname.")
+    if not nickname_sources:
+        ingest_logger.error("No seeds provided. Specify at least --nickname.")
         return 2
     depth = ingest_table.get("depth", args.depth)
     if args.max_games is not None:
@@ -623,7 +618,7 @@ def _run_ingest(
         progress_callback=report,
     )
     try:
-        manager.ingest_from_seeds(seed_users, depth=depth)
+        manager.ingest_from_seeds(nickname_sources, depth=depth)
     finally:
         if parquet_exporter is not None:
             try:
