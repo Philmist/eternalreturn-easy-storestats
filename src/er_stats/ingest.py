@@ -107,10 +107,7 @@ class IngestionManager:
                                 break
                 game_id = game.get("gameId")
                 game_already_known = bool(game_id and self.store.has_game(game_id))
-                game_uid = self._extract_uid(game.get("nickname", ""))
-                if game_uid is None:
-                    continue
-                game["uid"] = game_uid
+                game["uid"] = uid
                 self.store.upsert_from_game_payload(game)
                 if self._parquet is not None:
                     self._parquet.write_from_game_payload(game)
