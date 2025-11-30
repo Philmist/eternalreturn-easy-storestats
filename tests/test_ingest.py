@@ -154,12 +154,12 @@ def test_ingest_only_newer_games_breaks_at_cutoff(store, make_game):
 def test_ingest_includes_older_games_when_cutoff_disabled(store, make_game):
     users = _generate_uids(["100"])
 
-    existing = make_game(game_id=1, nickname="100")
+    existing = make_game(game_id=1, nickname="100", uid=users["100"])
     store.upsert_from_game_payload(existing)
 
-    older = make_game(game_id=2, nickname="100")
+    older = make_game(game_id=2, nickname="100", uid=users["100"])
     older["startDtm"] = "2025-01-01T00:00:00.000+0000"
-    newest = make_game(game_id=3, nickname="100")
+    newest = make_game(game_id=3, nickname="100", uid=users["100"])
     newest["startDtm"] = "2025-01-03T00:00:00.000+0000"
 
     pages = [

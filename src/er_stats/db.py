@@ -211,14 +211,12 @@ class SQLiteStore:
         self.connection.commit()
 
     def upsert_user(self, game: Dict[str, Any]) -> None:
-        uid = game.get("uid")
-        if uid is None:
-            return
         nickname = game.get("nickname")
         start_time = parse_start_time(game.get("startDtm"))
         mmr_after = game.get("mmrAfter")
         ml_bot_flag = _resolve_ml_bot(game)
         language = game.get("language")
+        uid = extract_uid(game)
         with self.cursor() as cur:
             cur.execute(
                 """
@@ -451,6 +449,16 @@ class SQLiteStore:
         self.connection.commit()
 
     def upsert_from_game_payload(self, game: Dict[str, Any]) -> None:
+        """
+        Upsert data from modified game data.
+
+        Game data (type:dict) must have 'uid' key.
+        """
+        uid = extract_uid(game)
+        uid = uid if uid else self.get_uid_from_nickname(game.get("nickname"))
+        if uid is None:
+            raise ValueError("No uid key in game data.")
+        game["uid"] = uid
         self.upsert_user(game)
         self.upsert_match(game)
         self.upsert_user_match_stats(game)
@@ -575,6 +583,8 @@ class SQLiteStore:
 
         This method returns exact one uid from nickname when nickname has been stored.
         """
+        if not isinstance(nickname, str):
+            return None
         with self.cursor() as cur:
             cur.execute("SELECT uid FROM users WHERE nickname=? AND deleted = 0 ORDER BY unixepoch(last_seen, 'auto') DESC LIMIT 1", (nickname,))
             uids = [row["uid"] for row in cur.fetchall()]
