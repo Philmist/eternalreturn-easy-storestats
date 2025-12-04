@@ -39,13 +39,13 @@ PARTICIPANT_SCHEMA = pa.schema(
     [
         pa.field("game_id", pa.int64()),
         pa.field("uid", pa.string()),
+        pa.field("nickname", pa.string()),
         pa.field("character_num", pa.int64()),
         pa.field("skin_code", pa.int64()),
         pa.field("game_rank", pa.int64()),
         pa.field("player_kill", pa.int64()),
         pa.field("player_assistant", pa.int64()),
         pa.field("monster_kill", pa.int64()),
-        pa.field("mmr_after", pa.int64()),
         pa.field("mmr_gain", pa.int64()),
         pa.field("mmr_loss_entry_cost", pa.int64()),
         pa.field("victory", pa.int64()),
@@ -60,14 +60,18 @@ PARTICIPANT_SCHEMA = pa.schema(
         pa.field("best_weapon_level", pa.int64()),
         pa.field("team_number", pa.int64()),
         pa.field("premade", pa.int64()),
+        pa.field("pre_made", pa.int64()),
+        pa.field("premade_matching_type", pa.int64()),
         pa.field("language", pa.string()),
         pa.field("ml_bot", pa.int64()),
+        pa.field("is_ml_bot", pa.int64()),
+        pa.field("mlbot", pa.int64()),
+        pa.field("bot_level", pa.int64()),
         pa.field("season_id", pa.int32()),
         pa.field("matching_mode", pa.int32()),
         pa.field("matching_team_mode", pa.int32()),
         pa.field("server_name", pa.string()),
         # Extended scalar stats
-        pa.field("mmr_before", pa.int64()),
         pa.field("watch_time", pa.int64()),
         pa.field("total_time", pa.int64()),
         pa.field("survivable_time", pa.int64()),
@@ -102,6 +106,10 @@ PARTICIPANT_SCHEMA = pa.schema(
         pa.field("skill_life_steal", pa.float64()),
         pa.field("amplifier_to_monster", pa.float64()),
         pa.field("trap_damage", pa.float64()),
+        pa.field("adaptive_force", pa.int64()),
+        pa.field("adaptive_force_attack", pa.int64()),
+        pa.field("adaptive_force_amplify", pa.int64()),
+        pa.field("skill_amp", pa.int64()),
         # Event / misc
         pa.field("bonus_coin", pa.int64()),
         pa.field("gain_exp", pa.int64()),
@@ -130,6 +138,9 @@ PARTICIPANT_SCHEMA = pa.schema(
         pa.field("remove_telephoto_camera", pa.int64()),
         pa.field("use_hyper_loop", pa.int64()),
         pa.field("use_security_console", pa.int64()),
+        pa.field("tactical_skill_group", pa.int64()),
+        pa.field("tactical_skill_level", pa.int64()),
+        pa.field("tactical_skill_use_count", pa.int64()),
         pa.field("trait_first_core", pa.int64()),
         pa.field("trait_first_sub", pa.list_(pa.int64())),
         pa.field("trait_second_sub", pa.list_(pa.int64())),
@@ -138,11 +149,11 @@ PARTICIPANT_SCHEMA = pa.schema(
         pa.field("actively_gained_credits", pa.int64()),
         pa.field("used_vf_credits", pa.list_(pa.int64())),
         pa.field("sum_used_vf_credits", pa.int64()),
+        pa.field("total_use_vf_credit", pa.int64()),
         # VF credit cumulative counters (scalar companions to the history arrays above)
         pa.field("credit_revival_count", pa.int64()),
         pa.field("credit_revived_others_count", pa.int64()),
         pa.field("total_gain_vf_credit", pa.int64()),
-        pa.field("total_use_vf_credit", pa.int64()),
         pa.field("craft_mythic", pa.int64()),
         pa.field("player_deaths", pa.int64()),
         pa.field("kill_gamma", pa.bool_()),
@@ -157,7 +168,28 @@ PARTICIPANT_SCHEMA = pa.schema(
         pa.field("deaths_phase_three", pa.int64()),
         pa.field("used_pair_loop", pa.int64()),
         pa.field("cc_time_to_player", pa.float64()),
+        pa.field("used_normal_heal_pack", pa.int64()),
+        pa.field("used_reinforced_heal_pack", pa.int64()),
+        pa.field("used_normal_shield_pack", pa.int64()),
+        pa.field("used_reinforce_shield_pack", pa.int64()),
         pa.field("item_transferred_console", pa.list_(pa.int64())),
+        pa.field("item_transferred_drone", pa.list_(pa.int64())),
+        pa.field("collect_item_for_log", pa.list_(pa.int64())),
+        pa.field("bought_infusion", pa.string()),
+        pa.field("use_gadget", pa.map_(pa.string(), pa.int64())),
+        pa.field("use_guide_robot", pa.int64()),
+        pa.field("guide_robot_radial", pa.int64()),
+        pa.field("guide_robot_flag_ship", pa.int64()),
+        pa.field("guide_robot_signature", pa.int64()),
+        pa.field("use_recon_drone", pa.int64()),
+        pa.field("use_emp_drone", pa.int64()),
+        pa.field("active_installation", pa.map_(pa.string(), pa.int64())),
+        pa.field("get_bori_reward", pa.map_(pa.string(), pa.int64())),
+        pa.field("except_pre_made_team", pa.bool_()),
+        pa.field("squad_rumble_rank", pa.int64()),
+        pa.field("view_contribution", pa.int64()),
+        pa.field("break_count", pa.int64()),
+        pa.field("escape_state", pa.int64()),
         # Nested maps
         pa.field("mastery_level", pa.map_(pa.string(), pa.int64())),
         pa.field("equipment_map", pa.map_(pa.string(), pa.int64())),
@@ -170,6 +202,45 @@ PARTICIPANT_SCHEMA = pa.schema(
         pa.field(
             "equip_first_item_for_log", pa.map_(pa.string(), pa.list_(pa.int64()))
         ),
+        pa.field("cr_use_remote_drone", pa.int64()),
+        pa.field("cr_use_upgrade_tactical_skill", pa.int64()),
+        pa.field("cr_use_tree_of_life", pa.int64()),
+        pa.field("cr_use_meteorite", pa.int64()),
+        pa.field("cr_use_mythril", pa.int64()),
+        pa.field("cr_use_force_core", pa.int64()),
+        pa.field("cr_use_vf_blood_sample", pa.int64()),
+        pa.field("cr_use_activation_module", pa.int64()),
+        pa.field("cr_use_rootkit", pa.int64()),
+        pa.field("team_elimination", pa.int64()),
+        pa.field("team_down", pa.int64()),
+        pa.field("team_battle_zone_down", pa.int64()),
+        pa.field("team_repeat_down", pa.int64()),
+        pa.field("team_down_can_not_eliminate", pa.int64()),
+        pa.field("team_down_can_eliminate", pa.int64()),
+        pa.field("team_repeat_down_can_not_eliminate", pa.int64()),
+        pa.field("team_repeat_down_can_eliminate", pa.int64()),
+        pa.field("terminate_count", pa.int64()),
+        pa.field("terminate_count_can_not_eliminate", pa.int64()),
+        pa.field("clutch_count", pa.int64()),
+        pa.field("total_tk_per_min", pa.list_(pa.int64())),
+        pa.field("win_from_dimension_rift", pa.int64()),
+        pa.field("win_from_dimension_empowered_rift", pa.int64()),
+        pa.field("item_shredder_gain_vf_credit", pa.int64()),
+        pa.field("remote_drone_use_vf_credit_my_self", pa.int64()),
+        pa.field("remote_drone_use_vf_credit_ally", pa.int64()),
+        pa.field("kiosk_from_material_use_vf_credit", pa.int64()),
+        pa.field("kiosk_from_escape_key_use_vf_credit", pa.int64()),
+        pa.field("kiosk_from_revival_use_vf_credit", pa.int64()),
+        pa.field("tactical_skill_upgrade_use_vf_credit", pa.int64()),
+        pa.field("infusion_re_roll_use_vf_credit", pa.int64()),
+        pa.field("infusion_trait_use_vf_credit", pa.int64()),
+        pa.field("infusion_relic_use_vf_credit", pa.int64()),
+        pa.field("infusion_store_use_vf_credit", pa.int64()),
+        pa.field("main_weather", pa.int64()),
+        pa.field("sub_weather", pa.int64()),
+        pa.field("total_turbine_take_over", pa.int64()),
+        pa.field("equipment_raw", pa.map_(pa.string(), pa.int64())),
+        pa.field("is_leaving_before_credit_revival_terminate", pa.bool_()),
     ]
 )
 
@@ -373,6 +444,7 @@ class ParquetExporter:
             # Identifiers
             "game_id": game_id,
             "uid": _safe_str(uid),
+            "nickname": _safe_str(game.get("nickname")),
             # Core stats mirrored from the SQLite schema along with key combat totals
             "character_num": _safe_int(game.get("characterNum")),
             "skin_code": _safe_int(game.get("skinCode")),
@@ -380,8 +452,11 @@ class ParquetExporter:
             "player_kill": _safe_int(game.get("playerKill")),
             "player_assistant": _safe_int(game.get("playerAssistant")),
             "monster_kill": _safe_int(game.get("monsterKill")),
-            "mmr_after": _safe_int(game.get("mmrAfter")),
-            "mmr_gain": _safe_int(game.get("mmrGain")),
+            "mmr_gain": _safe_int(
+                game.get("mmrGain")
+                if game.get("mmrGain") is not None
+                else game.get("mmrGainInGame")
+            ),
             "mmr_loss_entry_cost": _safe_int(game.get("mmrLossEntryCost")),
             "victory": _safe_int(game.get("victory")),
             "play_time": _safe_int(game.get("playTime")),
@@ -395,6 +470,8 @@ class ParquetExporter:
             "best_weapon_level": _safe_int(game.get("bestWeaponLevel")),
             "team_number": _safe_int(game.get("teamNumber")),
             "premade": _safe_int(game.get("preMade")),
+            "pre_made": _safe_int(game.get("preMade")),
+            "premade_matching_type": _safe_int(game.get("premadeMatchingType")),
             "language": str(game.get("language") or ""),
             "season_id": _safe_int(game.get("seasonId")),
             "matching_mode": _safe_int(game.get("matchingMode")),
@@ -406,11 +483,24 @@ class ParquetExporter:
         if ml_bot_flag is None:
             ml_bot_flag = game.get("isMLBot")
         row["ml_bot"] = int(bool(ml_bot_flag)) if ml_bot_flag is not None else 0
+        row["is_ml_bot"] = _safe_int(game.get("isMLBot"))
+        row["mlbot"] = _safe_int(game.get("mlbot"))
+        row["bot_level"] = _safe_int(game.get("botLevel"))
+        # Leaving flag may appear with different casing; prioritize any True
+        leave_flags = [
+            game.get("isLeavingBeforeCreditRevivalTerminate"),
+            game.get("IsLeavingBeforeCreditRevivalTerminate"),
+        ]
+        leave_value = None
+        if any(flag is True for flag in leave_flags):
+            leave_value = True
+        elif any(flag is False for flag in leave_flags):
+            leave_value = False
+        row["is_leaving_before_credit_revival_terminate"] = leave_value
 
         # Extended scalar stats
         row.update(
             {
-                "mmr_before": _safe_int(game.get("mmrBefore")),
                 "watch_time": _safe_int(game.get("watchTime")),
                 "total_time": _safe_int(game.get("totalTime")),
                 "survivable_time": _safe_int(game.get("survivableTime")),
@@ -451,6 +541,10 @@ class ParquetExporter:
                 "skill_life_steal": _safe_float(game.get("skillLifeSteal")),
                 "amplifier_to_monster": _safe_float(game.get("amplifierToMonster")),
                 "trap_damage": _safe_float(game.get("trapDamage")),
+                "adaptive_force": _safe_int(game.get("adaptiveForce")),
+                "adaptive_force_attack": _safe_int(game.get("adaptiveForceAttack")),
+                "adaptive_force_amplify": _safe_int(game.get("adaptiveForceAmplify")),
+                "skill_amp": _safe_int(game.get("skillAmp")),
                 # Event
                 "bonus_coin": _safe_int(game.get("bonusCoin")),
                 "gain_exp": _safe_int(game.get("gainExp")),
@@ -481,6 +575,11 @@ class ParquetExporter:
                 "remove_telephoto_camera": _safe_int(game.get("removeTelephotoCamera")),
                 "use_hyper_loop": _safe_int(game.get("useHyperLoop")),
                 "use_security_console": _safe_int(game.get("useSecurityConsole")),
+                "tactical_skill_group": _safe_int(game.get("tacticalSkillGroup")),
+                "tactical_skill_level": _safe_int(game.get("tacticalSkillLevel")),
+                "tactical_skill_use_count": _safe_int(
+                    game.get("tacticalSkillUseCount")
+                ),
                 "trait_first_core": _safe_int(game.get("traitFirstCore")),
                 "trait_first_sub": _safe_list_int(game.get("traitFirstSub")),
                 "trait_second_sub": _safe_list_int(game.get("traitSecondSub")),
@@ -489,13 +588,13 @@ class ParquetExporter:
                 "actively_gained_credits": _safe_int(game.get("activelyGainedCredits")),
                 "used_vf_credits": _safe_list_int(game.get("usedVFCredits")),
                 "sum_used_vf_credits": _safe_int(game.get("sumUsedVFCredits")),
+                "total_use_vf_credit": _safe_int(game.get("totalUseVFCredit")),
                 # Scalar rollups corresponding to the VF credit histories above
                 "credit_revival_count": _safe_int(game.get("creditRevivalCount")),
                 "credit_revived_others_count": _safe_int(
                     game.get("creditRevivedOthersCount")
                 ),
                 "total_gain_vf_credit": _safe_int(game.get("totalGainVFCredit")),
-                "total_use_vf_credit": _safe_int(game.get("totalUseVFCredit")),
                 "craft_mythic": _safe_int(game.get("craftMythic")),
                 "player_deaths": _safe_int(game.get("playerDeaths")),
                 "kill_gamma": bool(game.get("killGamma"))
@@ -512,9 +611,36 @@ class ParquetExporter:
                 "deaths_phase_three": _safe_int(game.get("deathsPhaseThree")),
                 "used_pair_loop": _safe_int(game.get("usedPairLoop")),
                 "cc_time_to_player": _safe_float(game.get("ccTimeToPlayer")),
+                "used_normal_heal_pack": _safe_int(game.get("usedNormalHealPack")),
+                "used_reinforced_heal_pack": _safe_int(
+                    game.get("usedReinforcedHealPack")
+                ),
+                "used_normal_shield_pack": _safe_int(game.get("usedNormalShieldPack")),
+                "used_reinforce_shield_pack": _safe_int(
+                    game.get("usedReinforceShieldPack")
+                ),
                 "item_transferred_console": _safe_list_int(
                     game.get("itemTransferredConsole")
                 ),
+                "item_transferred_drone": _safe_list_int(
+                    game.get("itemTransferredDrone")
+                ),
+                "collect_item_for_log": _safe_list_int(game.get("collectItemForLog")),
+                "bought_infusion": _safe_str(game.get("boughtInfusion")),
+                "use_gadget": game.get("useGadget") or None,
+                "use_guide_robot": _safe_int(game.get("useGuideRobot")),
+                "guide_robot_radial": _safe_int(game.get("guideRobotRadial")),
+                "guide_robot_flag_ship": _safe_int(game.get("guideRobotFlagShip")),
+                "guide_robot_signature": _safe_int(game.get("guideRobotSignature")),
+                "use_recon_drone": _safe_int(game.get("useReconDrone")),
+                "use_emp_drone": _safe_int(game.get("useEmpDrone")),
+                "active_installation": game.get("activeInstallation") or None,
+                "get_bori_reward": game.get("getBoriReward") or None,
+                "except_pre_made_team": game.get("exceptPreMadeTeam"),
+                "squad_rumble_rank": _safe_int(game.get("squadRumbleRank")),
+                "view_contribution": _safe_int(game.get("viewContribution")),
+                "break_count": _safe_int(game.get("breakCount")),
+                "escape_state": _safe_int(game.get("escapeState")),
             }
         )
 
@@ -530,6 +656,78 @@ class ParquetExporter:
         row["kill_monsters"] = game.get("killMonsters") or None
         row["credit_source"] = game.get("creditSource") or None
         row["event_mission_result"] = game.get("eventMissionResult") or None
+        row["equipment_raw"] = game.get("equipment") or None
+        row["cr_use_remote_drone"] = _safe_int(game.get("crUseRemoteDrone"))
+        row["cr_use_upgrade_tactical_skill"] = _safe_int(
+            game.get("crUseUpgradeTacticalSkill")
+        )
+        row["cr_use_tree_of_life"] = _safe_int(game.get("crUseTreeOfLife"))
+        row["cr_use_meteorite"] = _safe_int(game.get("crUseMeteorite"))
+        row["cr_use_mythril"] = _safe_int(game.get("crUseMythril"))
+        row["cr_use_force_core"] = _safe_int(game.get("crUseForceCore"))
+        row["cr_use_vf_blood_sample"] = _safe_int(game.get("crUseVFBloodSample"))
+        row["cr_use_activation_module"] = _safe_int(game.get("crUseActivationModule"))
+        row["cr_use_rootkit"] = _safe_int(game.get("crUseRootkit"))
+        row["team_elimination"] = _safe_int(game.get("teamElimination"))
+        row["team_down"] = _safe_int(game.get("teamDown"))
+        row["team_battle_zone_down"] = _safe_int(game.get("teamBattleZoneDown"))
+        row["team_repeat_down"] = _safe_int(game.get("teamRepeatDown"))
+        row["team_down_can_not_eliminate"] = _safe_int(
+            game.get("teamDownCanNotEliminate")
+        )
+        row["team_down_can_eliminate"] = _safe_int(game.get("teamDownCanEliminate"))
+        row["team_repeat_down_can_not_eliminate"] = _safe_int(
+            game.get("teamRepeatDownCanNotEliminate")
+        )
+        row["team_repeat_down_can_eliminate"] = _safe_int(
+            game.get("teamRepeatDownCanEliminate")
+        )
+        row["terminate_count"] = _safe_int(game.get("terminateCount"))
+        row["terminate_count_can_not_eliminate"] = _safe_int(
+            game.get("terminateCountCanNotEliminate")
+        )
+        row["clutch_count"] = _safe_int(game.get("clutchCount"))
+        row["total_tk_per_min"] = _safe_list_int(game.get("totalTKPerMin"))
+        row["win_from_dimension_rift"] = _safe_int(game.get("winFromDimensionRift"))
+        row["win_from_dimension_empowered_rift"] = _safe_int(
+            game.get("winFromDimensionEmpoweredRift")
+        )
+        row["remote_drone_use_vf_credit_my_self"] = _safe_int(
+            game.get("remoteDroneUseVFCreditMySelf")
+        )
+        row["remote_drone_use_vf_credit_ally"] = _safe_int(
+            game.get("remoteDroneUseVFCreditAlly")
+        )
+        row["kiosk_from_material_use_vf_credit"] = _safe_int(
+            game.get("kioskFromMaterialUseVFCredit")
+        )
+        row["kiosk_from_escape_key_use_vf_credit"] = _safe_int(
+            game.get("kioskFromEscapeKeyUseVFCredit")
+        )
+        row["kiosk_from_revival_use_vf_credit"] = _safe_int(
+            game.get("kioskFromRevivalUseVFCredit")
+        )
+        row["tactical_skill_upgrade_use_vf_credit"] = _safe_int(
+            game.get("tacticalSkillUpgradeUseVFCredit")
+        )
+        row["infusion_re_roll_use_vf_credit"] = _safe_int(
+            game.get("infusionReRollUseVFCredit")
+        )
+        row["infusion_trait_use_vf_credit"] = _safe_int(
+            game.get("infusionTraitUseVFCredit")
+        )
+        row["infusion_relic_use_vf_credit"] = _safe_int(
+            game.get("infusionRelicUseVFCredit")
+        )
+        row["infusion_store_use_vf_credit"] = _safe_int(
+            game.get("infusionStoreUseVFCredit")
+        )
+        row["item_shredder_gain_vf_credit"] = _safe_int(
+            game.get("itemShredderGainVFCredit")
+        )
+        row["main_weather"] = _safe_int(game.get("mainWeather"))
+        row["sub_weather"] = _safe_int(game.get("subWeather"))
+        row["total_turbine_take_over"] = _safe_int(game.get("totalTurbineTakeOver"))
 
         self._buf_participants[self._partition_key(game)].append(row)
         if len(self._buf_participants[self._partition_key(game)]) >= self._flush_rows:

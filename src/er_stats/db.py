@@ -313,8 +313,10 @@ class SQLiteStore:
             "player_kill": game.get("playerKill"),
             "player_assistant": game.get("playerAssistant"),
             "monster_kill": game.get("monsterKill"),
-            "mmr_after": game.get("mmrAfter"),
-            "mmr_gain": game.get("mmrGain"),
+            "mmr_after": None,
+            "mmr_gain": game.get("mmrGain")
+            if game.get("mmrGain") is not None
+            else game.get("mmrGainInGame"),
             "mmr_loss_entry_cost": game.get("mmrLossEntryCost"),
             "victory": game.get("victory"),
             "play_time": game.get("playTime"),
