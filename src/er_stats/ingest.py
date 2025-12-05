@@ -167,10 +167,10 @@ class IngestionManager:
 
         cutoff: Optional[dt.datetime] = None
         if self.only_newer_games:
-            last_seen = self.store.get_user_last_seen(uid)
-            if last_seen:
+            ingested_until = self.store.get_user_ingested_until(uid)
+            if ingested_until:
                 try:
-                    cutoff = dt.datetime.fromisoformat(last_seen)
+                    cutoff = dt.datetime.fromisoformat(ingested_until)
                 except ValueError:
                     cutoff = None
 
@@ -213,7 +213,7 @@ class IngestionManager:
                 game_id = game.get("gameId")
                 game_already_known = bool(game_id and self.store.has_game(game_id))
                 game["uid"] = uid
-                self.store.upsert_from_game_payload(game)
+                self.store.upsert_from_game_payload(game, mark_ingested=True)
                 if self._parquet is not None:
                     self._parquet.write_from_game_payload(game)
                 processed += 1
@@ -318,7 +318,9 @@ class IngestionManager:
                     uid = validated_uid
                 participant["uid"] = uid
                 try:
-                    self.store.upsert_from_game_payload(participant)
+                    self.store.upsert_from_game_payload(
+                        participant, mark_ingested=False
+                    )
                     success = True
                     if self._parquet is not None:
                         self._parquet.write_from_game_payload(participant)

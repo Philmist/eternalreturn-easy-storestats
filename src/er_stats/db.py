@@ -89,6 +89,7 @@ class SQLiteStore:
                     nickname TEXT,
                     first_seen TEXT,
                     last_seen TEXT,
+                    ingested_until TEXT,
                     last_checked TEXT,
                     last_mmr INTEGER,
                     ml_bot INTEGER DEFAULT 0,
@@ -210,38 +211,57 @@ class SQLiteStore:
                     WHERE deleted = 0;
                 """
             )
+            cur.execute("PRAGMA table_info('users')")
+            existing_columns = {row["name"] for row in cur.fetchall()}
+            if "ingested_until" not in existing_columns:
+                cur.execute("ALTER TABLE users ADD COLUMN ingested_until TEXT")
         self.connection.commit()
 
-    def upsert_user(self, game: Dict[str, Any]) -> None:
+    def upsert_user(self, game: Dict[str, Any], *, mark_ingested: bool = True) -> None:
         nickname = game.get("nickname")
         start_time = parse_start_time(game.get("startDtm"))
         mmr_after = game.get("mmrAfter")
         ml_bot_flag = _resolve_ml_bot(game)
         language = game.get("language")
         uid = extract_uid(game)
+        ingested_until = start_time if mark_ingested else None
         with self.cursor() as cur:
             cur.execute(
                 """
                 INSERT INTO users (
-                    uid, nickname, first_seen, last_seen, last_checked, last_mmr, ml_bot, last_language
+                    uid, nickname, first_seen, last_seen, ingested_until, last_checked, last_mmr, ml_bot, last_language
                 ) VALUES (
-                    :uid, :nickname, :first_seen, :last_seen, :last_checked, :last_mmr, :ml_bot, :last_language
+                    :uid, :nickname, :first_seen, :last_seen, :ingested_until, :last_checked, :last_mmr, :ml_bot, :last_language
                 )
                 ON CONFLICT(uid) DO UPDATE SET
                     nickname=excluded.nickname,
                     last_seen=MAX(users.last_seen, excluded.last_seen),
+                    ingested_until=CASE
+                        WHEN excluded.ingested_until IS NULL THEN users.ingested_until
+                        WHEN users.ingested_until IS NULL THEN excluded.ingested_until
+                        WHEN excluded.ingested_until > users.ingested_until THEN excluded.ingested_until
+                        ELSE users.ingested_until
+                    END,
                     last_mmr=excluded.last_mmr,
                     ml_bot=excluded.ml_bot,
                     last_checked=COALESCE(users.last_checked, excluded.last_checked),
                     last_language=excluded.last_language
                 WHERE
                     excluded.last_seen > users.last_seen
+                    OR (
+                        excluded.ingested_until IS NOT NULL
+                        AND (
+                            users.ingested_until IS NULL
+                            OR excluded.ingested_until > users.ingested_until
+                        )
+                    )
                 """,
                 {
                     "uid": uid,
                     "nickname": nickname,
                     "first_seen": start_time,
                     "last_seen": start_time,
+                    "ingested_until": ingested_until,
                     "last_checked": start_time,
                     "last_mmr": mmr_after,
                     "ml_bot": ml_bot_flag,
@@ -459,7 +479,9 @@ class SQLiteStore:
                 )
         self.connection.commit()
 
-    def upsert_from_game_payload(self, game: Dict[str, Any]) -> None:
+    def upsert_from_game_payload(
+        self, game: Dict[str, Any], *, mark_ingested: bool = True
+    ) -> None:
         """
         Upsert data from modified game data.
 
@@ -470,7 +492,7 @@ class SQLiteStore:
         if uid is None:
             raise ValueError("No uid key in game data.")
         game["uid"] = uid
-        self.upsert_user(game)
+        self.upsert_user(game, mark_ingested=mark_ingested)
         self.upsert_match(game)
         self.upsert_user_match_stats(game)
         self.replace_equipment(game)
@@ -582,6 +604,15 @@ class SQLiteStore:
             )
             row = cur.fetchone()
             return row["last_seen"] if row else None
+
+    def get_user_ingested_until(self, uid: str) -> Optional[str]:
+        with self.cursor() as cur:
+            cur.execute(
+                "SELECT ingested_until FROM users WHERE uid=? AND deleted = 0",
+                (uid,),
+            )
+            row = cur.fetchone()
+            return row["ingested_until"] if row else None
 
     def get_user_last_checked(self, uid: str) -> Optional[str]:
         with self.cursor() as cur:
