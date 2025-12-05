@@ -17,7 +17,8 @@ only_newer_games = true
 parquet_dir = "data/parquet"
 
 [ingest.seeds]
-users = [123456, 789012]
+# Ingesting from userNum or UID is deprected.
+# Use nicknames instead.
 nicknames = ["ExamplePlayer1", "ExamplePlayer2"]
 
 [auth]
