@@ -107,5 +107,5 @@ def test_cli_ingest_with_nickname(monkeypatch, store, make_game, tmp_path):
     cur = store.connection.execute("SELECT COUNT(*) FROM matches")
     assert cur.fetchone()[0] == 2
     cur = store.connection.execute("SELECT COUNT(*) FROM user_match_stats")
-    # 2 rows from seed user's games + 3 rows from participants
-    assert cur.fetchone()[0] == 5
+    # 2 rows from seed user's games + 3 rows from participants + 3 rows from depth-1 users
+    assert cur.fetchone()[0] == 8

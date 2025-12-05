@@ -194,6 +194,27 @@ def test_ingest_includes_older_games_when_cutoff_disabled(store, make_game):
     assert store.has_game(3)
 
 
+def test_ingest_cutoff_uses_ingested_until_not_last_seen(store, make_game):
+    users = _generate_uids(["100"])
+
+    observed = make_game(game_id=1, nickname="100", uid=users["100"])
+    observed["startDtm"] = "2025-02-01T00:00:00.000+0000"
+    store.upsert_from_game_payload(observed, mark_ingested=False)
+
+    older = make_game(game_id=2, nickname="100", uid=users["100"])
+    older["startDtm"] = "2025-01-01T00:00:00.000+0000"
+
+    client = FakeClient(pages=[{"userGames": [older]}], participants={}, users=users)
+    manager = IngestionManager(
+        client, store, fetch_game_details=False, only_newer_games=True
+    )
+
+    manager.ingest_user(users["100"])
+
+    assert client.fetch_user_games_calls == [None]
+    assert store.has_game(2)
+
+
 def test_ingest_uses_cached_uid_without_recheck(store, make_game):
     nickname = "dup"
     old_uid = "UID-old"

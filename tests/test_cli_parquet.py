@@ -114,7 +114,8 @@ def test_cli_ingest_with_parquet_dir(monkeypatch, store, tmp_path, make_game):
     cur = store.connection.execute("SELECT COUNT(*) FROM matches")
     assert cur.fetchone()[0] == 2
     cur = store.connection.execute("SELECT COUNT(*) FROM user_match_stats")
-    assert cur.fetchone()[0] == 5
+    # 2 rows from seed user's games + 3 rows from participants + 3 rows from depth-1 users
+    assert cur.fetchone()[0] == 8
 
     # Parquet datasets were written
     matches_files = list((out_dir / "matches").rglob("*.parquet"))
