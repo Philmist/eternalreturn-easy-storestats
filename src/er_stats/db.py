@@ -207,7 +207,7 @@ class SQLiteStore:
                     ON user_match_stats (uid);
 
                 CREATE INDEX IF NOT EXISTS idx_users_nickname
-                    ON users (nickname, unixepoch(last_seen, 'auto'))
+                    ON users (nickname, unixepoch(last_seen, 'auto'), unixepoch(ingested_until, 'auto'))
                     WHERE deleted = 0;
                 """
             )
@@ -235,11 +235,11 @@ class SQLiteStore:
                 )
                 ON CONFLICT(uid) DO UPDATE SET
                     nickname=excluded.nickname,
-                    last_seen=MAX(users.last_seen, excluded.last_seen),
+                    last_seen=if(unixepoch(users.last_seen, 'auto') > unixepoch(excluded.last_seen, 'auto'), users.last_seen, excluded.last_seen),
                     ingested_until=CASE
                         WHEN excluded.ingested_until IS NULL THEN users.ingested_until
                         WHEN users.ingested_until IS NULL THEN excluded.ingested_until
-                        WHEN excluded.ingested_until > users.ingested_until THEN excluded.ingested_until
+                        WHEN unixepoch(excluded.ingested_until, 'auto') > unixepoch(users.ingested_until, 'auto') THEN excluded.ingested_until
                         ELSE users.ingested_until
                     END,
                     last_mmr=excluded.last_mmr,
@@ -247,12 +247,12 @@ class SQLiteStore:
                     last_checked=COALESCE(users.last_checked, excluded.last_checked),
                     last_language=excluded.last_language
                 WHERE
-                    excluded.last_seen > users.last_seen
+                    unixepoch(excluded.last_seen, 'auto') > unixepoch(users.last_seen, 'auto')
                     OR (
                         excluded.ingested_until IS NOT NULL
                         AND (
                             users.ingested_until IS NULL
-                            OR excluded.ingested_until > users.ingested_until
+                            OR unixepoch(excluded.ingested_until, 'auto') > unixepoch(users.ingested_until, 'auto')
                         )
                     )
                 """,
