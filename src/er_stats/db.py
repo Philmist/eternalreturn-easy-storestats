@@ -206,9 +206,8 @@ class SQLiteStore:
                 CREATE INDEX IF NOT EXISTS idx_user_match_user
                     ON user_match_stats (uid);
 
-                CREATE INDEX IF NOT EXISTS idx_users_nickname
-                    ON users (nickname, unixepoch(last_seen, 'auto'), unixepoch(ingested_until, 'auto'))
-                    WHERE deleted = 0;
+                CREATE INDEX IF NOT EXISTS idx_user_nickname
+                    ON users (nickname, unixepoch(last_seen, 'auto'), unixepoch(ingested_until, 'auto'), deleted);
                 """
             )
             cur.execute("PRAGMA table_info('users')")
@@ -235,7 +234,10 @@ class SQLiteStore:
                 )
                 ON CONFLICT(uid) DO UPDATE SET
                     nickname=excluded.nickname,
-                    last_seen=if(unixepoch(users.last_seen, 'auto') > unixepoch(excluded.last_seen, 'auto'), users.last_seen, excluded.last_seen),
+                    last_seen=CASE
+                        WHEN unixepoch(users.last_seen, 'auto') > unixepoch(excluded.last_seen, 'auto') THEN users.last_seen
+                        ELSE excluded.last_seen
+                    END,
                     ingested_until=CASE
                         WHEN excluded.ingested_until IS NULL THEN users.ingested_until
                         WHEN users.ingested_until IS NULL THEN excluded.ingested_until
