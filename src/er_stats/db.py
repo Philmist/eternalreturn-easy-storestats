@@ -108,7 +108,6 @@ class SQLiteStore:
                     version_major INTEGER,
                     version_minor INTEGER,
                     start_dtm TEXT,
-                    duration INTEGER,
                     UNIQUE(game_id)
                 );
 
@@ -126,6 +125,7 @@ class SQLiteStore:
                     mmr_loss_entry_cost INTEGER,
                     victory INTEGER,
                     play_time INTEGER,
+                    duration INTEGER,
                     damage_to_player INTEGER,
                     character_level INTEGER,
                     best_weapon INTEGER,
@@ -210,10 +210,6 @@ class SQLiteStore:
                     ON users (nickname, unixepoch(last_seen, 'auto'), unixepoch(ingested_until, 'auto'), deleted);
                 """
             )
-            cur.execute("PRAGMA table_info('users')")
-            existing_columns = {row["name"] for row in cur.fetchall()}
-            if "ingested_until" not in existing_columns:
-                cur.execute("ALTER TABLE users ADD COLUMN ingested_until TEXT")
         self.connection.commit()
 
     def upsert_user(self, game: Dict[str, Any], *, mark_ingested: bool = True) -> None:
@@ -282,14 +278,14 @@ class SQLiteStore:
                     matching_mode,
                     matching_team_mode,
                     server_name,
+                    incomplete,
                     version_season,
                     version_major,
                     version_minor,
-                    start_dtm,
-                    duration
+                    start_dtm
                 ) VALUES (
                     :game_id, :season_id, :matching_mode, :matching_team_mode, :server_name,
-                    :version_season, :version_major, :version_minor, :start_dtm, :duration
+                    :incomplete, :version_season, :version_major, :version_minor, :start_dtm
                 )
                 ON CONFLICT(game_id) DO UPDATE SET
                     season_id=excluded.season_id,
@@ -303,8 +299,7 @@ class SQLiteStore:
                     version_season=excluded.version_season,
                     version_major=excluded.version_major,
                     version_minor=excluded.version_minor,
-                    start_dtm=excluded.start_dtm,
-                    duration=excluded.duration
+                    start_dtm=excluded.start_dtm
                 """,
                 {
                     "game_id": game.get("gameId"),
@@ -317,7 +312,6 @@ class SQLiteStore:
                     "version_major": game.get("versionMajor"),
                     "version_minor": game.get("versionMinor"),
                     "start_dtm": parse_start_time(game.get("startDtm")),
-                    "duration": game.get("duration"),
                 },
             )
         self.connection.commit()
@@ -342,6 +336,7 @@ class SQLiteStore:
             "mmr_loss_entry_cost": game.get("mmrLossEntryCost"),
             "victory": game.get("victory"),
             "play_time": game.get("playTime"),
+            "duration": game.get("duration"),
             "damage_to_player": game.get("damageToPlayer"),
             "character_level": game.get("characterLevel"),
             "best_weapon": game.get("bestWeapon"),
@@ -357,13 +352,13 @@ class SQLiteStore:
                 INSERT INTO user_match_stats (
                     game_id, uid, character_num, skin_code, game_rank,
                     player_kill, player_assistant, monster_kill, mmr_after,
-                    mmr_gain, mmr_loss_entry_cost, victory, play_time,
+                    mmr_gain, mmr_loss_entry_cost, victory, play_time, duration,
                     damage_to_player, character_level, best_weapon,
                     best_weapon_level, team_number, premade, language, ml_bot
                 ) VALUES (
                     :game_id, :uid, :character_num, :skin_code, :game_rank,
                     :player_kill, :player_assistant, :monster_kill, :mmr_after,
-                    :mmr_gain, :mmr_loss_entry_cost, :victory, :play_time,
+                    :mmr_gain, :mmr_loss_entry_cost, :victory, :play_time, :duration,
                     :damage_to_player, :character_level, :best_weapon,
                     :best_weapon_level, :team_number, :premade, :language, :ml_bot
                 )
@@ -379,6 +374,7 @@ class SQLiteStore:
                     mmr_loss_entry_cost=excluded.mmr_loss_entry_cost,
                     victory=excluded.victory,
                     play_time=excluded.play_time,
+                    duration=excluded.duration,
                     damage_to_player=excluded.damage_to_player,
                     character_level=excluded.character_level,
                     best_weapon=excluded.best_weapon,
