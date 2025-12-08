@@ -30,7 +30,6 @@ MATCH_SCHEMA = pa.schema(
         pa.field("version_major", pa.int64()),
         pa.field("version_minor", pa.int64()),
         pa.field("start_dtm", pa.string()),
-        pa.field("duration", pa.int64()),
         pa.field("server_name", pa.string()),
     ]
 )
@@ -50,6 +49,7 @@ PARTICIPANT_SCHEMA = pa.schema(
         pa.field("mmr_loss_entry_cost", pa.int64()),
         pa.field("victory", pa.int64()),
         pa.field("play_time", pa.int64()),
+        pa.field("duration", pa.int64()),
         pa.field("damage_to_player", pa.int64()),
         pa.field("damage_from_player", pa.int64()),
         pa.field("damage_from_monster", pa.int64()),
@@ -416,7 +416,6 @@ class ParquetExporter:
             "version_major": _safe_int(game.get("versionMajor")),
             "version_minor": _safe_int(game.get("versionMinor")),
             "start_dtm": parse_start_time(game.get("startDtm")),
-            "duration": _safe_int(game.get("duration")),
             "server_name": str(game.get("serverName") or ""),
         }
         self._buf_matches[key].append(row)
@@ -460,6 +459,7 @@ class ParquetExporter:
             "mmr_loss_entry_cost": _safe_int(game.get("mmrLossEntryCost")),
             "victory": _safe_int(game.get("victory")),
             "play_time": _safe_int(game.get("playTime")),
+            "duration": _safe_int(game.get("duration")),
             "damage_to_player": _safe_int(game.get("damageToPlayer")),
             "damage_from_player": _safe_int(game.get("damageFromPlayer")),
             "damage_from_monster": _safe_int(game.get("damageFromMonster")),
