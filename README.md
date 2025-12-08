@@ -13,7 +13,7 @@ Utilities to ingest Eternal Return Open API data into SQLite and run lightweight
 
 ## Installation
 
-Requires Python 3.9+.
+Requires Python 3.10+.
 
 ```bash
 python -m venv .venv
@@ -32,7 +32,8 @@ python -m pytest -q
 ## Testing
 
 Use the helper scripts to ensure the package is installed in editable mode
-with its test dependencies before running the test suite:
+with its test dependencies before running the test suite. These scripts rely
+on the `uv` CLI to sync dependencies and run pytest:
 
 ```bash
 ./scripts/run_tests.sh
@@ -133,6 +134,11 @@ python -m er_stats.cli --db er.sqlite ingest \
   --min-interval 1.0 --max-retries 3
 ```
 
+Ingest stops paging once it reaches previously stored matches for a user. Use
+`--include-older-games` to fetch full histories. Add
+`--require-metadata-refresh` to abort if the character or item catalogs fail to
+refresh before ingestion begins.
+
 For recurring jobs with mostly fixed settings, you can use a TOML
 configuration file instead of repeating all options on the command line.
 
@@ -208,37 +214,39 @@ python -m er_stats.cli --db er.sqlite ingest \
 ```
 The CLI resolves each `--nickname` via `GET /v1/user/nickname?query=...` when needed. UID seeds are no longer supported.
 
-Run aggregations (outputs JSON to stdout):
+Run aggregations (outputs JSON to stdout). Team mode is inferred from the
+matching mode; override with `--team-mode` only when needed:
 
 ```bash
 # Character rankings
 python -m er_stats.cli --db er.sqlite stats character \
-  --season 25 --server NA --mode 3 --team-mode 1
+  --season 25 --server NA --mode ranked
 
 # Limit to a time window (ISO-8601 with timezone or relative presets like last:7d)
 python -m er_stats.cli --db er.sqlite stats character \
-  --season 25 --server NA --mode 3 --team-mode 1 \
+  --season 25 --server NA --mode ranked \
   --range last:7d
 
 # Equipment performance
 python -m er_stats.cli --db er.sqlite stats equipment \
-  --season 25 --server NA --mode 3 --team-mode 1 --min-samples 5
+  --season 25 --server NA --mode ranked --min-samples 5
 
 # Bot usage stats
+# Bots only appear in normal matches, so use the normal mode here.
 python -m er_stats.cli --db er.sqlite stats bot \
-  --season 25 --server NA --mode 3 --team-mode 1 --min-matches 3
+  --season 25 --server NA --mode normal --min-matches 3
 
 # MMR change stats
 python -m er_stats.cli --db er.sqlite stats mmr \
-  --season 25 --server NA --mode 3 --team-mode 1
+  --season 25 --server NA --mode ranked
 
 # Filter by a specific patch (season + version_major) or the latest patch in the DB
 python -m er_stats.cli --db er.sqlite stats character \
-  --server NA --mode 3 --team-mode 1 --patch latest
+  --server NA --mode ranked --patch latest
 
 # Team compositions (win/top rates; defaults to all servers when --server omitted)
 python -m er_stats.cli --db er.sqlite stats team \
-  --mode 3 --team-mode 3 --season 25 \
+  --mode ranked --season 25 \
   --top-n 3 --min-matches 5
 ```
 
@@ -251,6 +259,8 @@ python -m er_stats.cli --db er.sqlite stats team \
 - `mastery_levels` — mastery level per type.
 - `skill_levels` — final level per skill code.
 - `skill_orders` — skill acquisition order sequence.
+- `characters` — metadata catalog of characters and skills.
+- `items` — metadata catalog of equipment.
 
 ## Notes
 
