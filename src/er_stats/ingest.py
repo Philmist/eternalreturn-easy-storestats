@@ -268,10 +268,24 @@ class IngestionManager:
     def _ingest_game_participants(
         self, game_id: Optional[int], *, already_known: bool = False
     ) -> Set[str]:
+        discovered, _, _ = self._ingest_game_participants_core(
+            game_id,
+            already_known=already_known,
+            force_fetch=False,
+        )
+        return discovered
+
+    def _ingest_game_participants_core(
+        self,
+        game_id: Optional[int],
+        *,
+        already_known: bool,
+        force_fetch: bool,
+    ) -> tuple[Set[str], bool, int]:
         if not game_id or game_id in self._seen_games:
-            return set()
+            return set(), False, 0
         self._seen_games.add(game_id)
-        if already_known:
+        if already_known and not force_fetch:
             cached_participants = self.store.get_participants_for_game(game_id)
             if cached_participants and len(cached_participants) > 1:
                 self._report(
@@ -286,7 +300,7 @@ class IngestionManager:
                     )
                     if isinstance(n, str) and n
                 }
-                return cached_nicknames
+                return cached_nicknames, False, len(cached_participants)
         payload = self.client.fetch_game_result(game_id)
         participants = payload.get("userGames", [])
         discovered: Set[str] = set()
@@ -339,7 +353,89 @@ class IngestionManager:
         if incomplete and game_id is not None:
             self.store.mark_game_incomplete(int(game_id))
         self._report(f"Fetched {len(participants)} participants for game {game_id}")
-        return discovered
+        return discovered, incomplete, len(participants)
+
+    def _refetch_delay(self, attempts: int) -> dt.timedelta:
+        base_days = 1
+        max_days = 30
+        delay_days = min(base_days * (2 ** max(attempts - 1, 0)), max_days)
+        return dt.timedelta(days=delay_days)
+
+    def _record_refetch_failure(
+        self,
+        game_id: int,
+        *,
+        status: str,
+        error: str,
+    ) -> None:
+        now = dt.datetime.now(dt.timezone.utc)
+        previous_attempts = self.store.get_refetch_attempts(game_id)
+        attempts = previous_attempts + 1
+        next_refetch_at = (now + self._refetch_delay(attempts)).isoformat()
+        self.store.upsert_refetch_status(
+            game_id,
+            status=status,
+            attempts=attempts,
+            last_refetch_at=now.isoformat(),
+            next_refetch_at=next_refetch_at,
+            last_error=error,
+        )
+
+    def refetch_incomplete_games(self, game_ids: Iterable[int]) -> dict[str, int]:
+        """Refetch participant data for matches flagged as incomplete."""
+
+        stats = {
+            "total": 0,
+            "cleared": 0,
+            "not_found": 0,
+            "empty": 0,
+            "still_incomplete": 0,
+        }
+        for game_id in game_ids:
+            stats["total"] += 1
+            try:
+                _, incomplete, participant_count = self._ingest_game_participants_core(
+                    int(game_id),
+                    already_known=True,
+                    force_fetch=True,
+                )
+            except requests.HTTPError as exc:
+                status = getattr(exc.response, "status_code", None)
+                if status == 404:
+                    self._report(
+                        f"Game {game_id} returned 404; keeping incomplete flag"
+                    )
+                    self._record_refetch_failure(
+                        int(game_id),
+                        status="missing",
+                        error="http_404",
+                    )
+                    stats["not_found"] += 1
+                    continue
+                raise
+            if participant_count == 0:
+                self._report(
+                    f"Game {game_id} returned 0 participants; keeping incomplete flag"
+                )
+                self._record_refetch_failure(
+                    int(game_id),
+                    status="error",
+                    error="empty_participants",
+                )
+                stats["empty"] += 1
+                continue
+            if not incomplete:
+                self.store.clear_game_incomplete(int(game_id))
+                self.store.clear_refetch_status(int(game_id))
+                stats["cleared"] += 1
+            else:
+                self._record_refetch_failure(
+                    int(game_id),
+                    status="error",
+                    error="incomplete_participants",
+                )
+                stats["still_incomplete"] += 1
+        return stats
 
 
 __all__ = ["IngestionManager"]

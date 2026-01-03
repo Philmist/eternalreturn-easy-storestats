@@ -111,6 +111,16 @@ class SQLiteStore:
                     UNIQUE(game_id)
                 );
 
+                CREATE TABLE IF NOT EXISTS match_refetch_status (
+                    game_id INTEGER PRIMARY KEY,
+                    status TEXT NOT NULL,
+                    attempts INTEGER NOT NULL DEFAULT 0,
+                    last_refetch_at TEXT,
+                    next_refetch_at TEXT,
+                    last_error TEXT,
+                    FOREIGN KEY (game_id) REFERENCES matches(game_id) ON DELETE CASCADE
+                );
+
                 CREATE TABLE IF NOT EXISTS user_match_stats (
                     game_id INTEGER NOT NULL,
                     uid TEXT NOT NULL,
@@ -208,6 +218,9 @@ class SQLiteStore:
 
                 CREATE INDEX IF NOT EXISTS idx_user_nickname
                     ON users (nickname, unixepoch(last_seen, 'auto'), unixepoch(ingested_until, 'auto'), deleted);
+
+                CREATE INDEX IF NOT EXISTS idx_refetch_status_next
+                    ON match_refetch_status (status, unixepoch(next_refetch_at, 'auto'));
                 """
             )
         self.connection.commit()
@@ -699,6 +712,149 @@ class SQLiteStore:
                 "UPDATE matches SET incomplete=1 WHERE game_id=?", (int(game_id),)
             )
         self.connection.commit()
+
+    def clear_game_incomplete(self, game_id: int) -> None:
+        """Clear the incomplete flag for a match."""
+
+        with self.cursor() as cur:
+            cur.execute(
+                "UPDATE matches SET incomplete=0 WHERE game_id=?", (int(game_id),)
+            )
+        self.connection.commit()
+
+    def get_refetch_attempts(self, game_id: int) -> int:
+        """Return the number of refetch attempts for a match."""
+
+        with self.cursor() as cur:
+            cur.execute(
+                "SELECT attempts FROM match_refetch_status WHERE game_id=?",
+                (int(game_id),),
+            )
+            row = cur.fetchone()
+        return int(row["attempts"]) if row else 0
+
+    def upsert_refetch_status(
+        self,
+        game_id: int,
+        *,
+        status: str,
+        attempts: int,
+        last_refetch_at: Optional[str],
+        next_refetch_at: Optional[str],
+        last_error: Optional[str],
+    ) -> None:
+        """Insert or update refetch status for a match."""
+
+        with self.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO match_refetch_status (
+                    game_id, status, attempts, last_refetch_at, next_refetch_at, last_error
+                ) VALUES (
+                    :game_id, :status, :attempts, :last_refetch_at, :next_refetch_at, :last_error
+                )
+                ON CONFLICT(game_id) DO UPDATE SET
+                    status=excluded.status,
+                    attempts=excluded.attempts,
+                    last_refetch_at=excluded.last_refetch_at,
+                    next_refetch_at=excluded.next_refetch_at,
+                    last_error=excluded.last_error
+                """,
+                {
+                    "game_id": int(game_id),
+                    "status": status,
+                    "attempts": int(attempts),
+                    "last_refetch_at": last_refetch_at,
+                    "next_refetch_at": next_refetch_at,
+                    "last_error": last_error,
+                },
+            )
+        self.connection.commit()
+
+    def clear_refetch_status(self, game_id: int) -> None:
+        """Remove refetch status for a match."""
+
+        with self.cursor() as cur:
+            cur.execute(
+                "DELETE FROM match_refetch_status WHERE game_id=?", (int(game_id),)
+            )
+        self.connection.commit()
+
+    def list_refetch_candidates(
+        self,
+        *,
+        limit: Optional[int] = None,
+        order: str = "oldest",
+        include_missing: bool = False,
+        season_id: Optional[int] = None,
+        server_name: Optional[str] = None,
+        matching_mode: Optional[int] = None,
+        matching_team_mode: Optional[int] = None,
+        start_dtm_from: Optional[str] = None,
+        start_dtm_to: Optional[str] = None,
+        version_major: Optional[int] = None,
+        now: Optional[str] = None,
+    ) -> list[int]:
+        """Return game IDs eligible for refetch."""
+
+        clauses = ["m.incomplete = 1"]
+        params: Dict[str, Any] = {}
+        if season_id is not None:
+            clauses.append("m.season_id = :season_id")
+            params["season_id"] = season_id
+        if server_name is not None:
+            clauses.append("m.server_name = :server_name")
+            params["server_name"] = server_name
+        if matching_mode is not None:
+            clauses.append("m.matching_mode = :matching_mode")
+            params["matching_mode"] = matching_mode
+        if matching_team_mode is not None:
+            clauses.append("m.matching_team_mode = :matching_team_mode")
+            params["matching_team_mode"] = matching_team_mode
+        if start_dtm_from is not None:
+            clauses.append(
+                "unixepoch(m.start_dtm, 'auto') >= unixepoch(:start_dtm_from)"
+            )
+            params["start_dtm_from"] = start_dtm_from
+        if start_dtm_to is not None:
+            clauses.append("unixepoch(m.start_dtm, 'auto') < unixepoch(:start_dtm_to)")
+            params["start_dtm_to"] = start_dtm_to
+        if version_major is not None:
+            clauses.append("m.version_major = :version_major")
+            params["version_major"] = version_major
+
+        if order not in {"oldest", "newest"}:
+            raise ValueError("order must be 'oldest' or 'newest'")
+        direction = "ASC" if order == "oldest" else "DESC"
+
+        now_value = now or dt.datetime.now(dt.timezone.utc).isoformat()
+        params["now"] = now_value
+        if include_missing:
+            clauses.append(
+                "(s.next_refetch_at IS NULL OR unixepoch(s.next_refetch_at, 'auto') <= unixepoch(:now))"
+            )
+        else:
+            clauses.append("(s.status IS NULL OR s.status != 'missing')")
+            clauses.append(
+                "(s.next_refetch_at IS NULL OR unixepoch(s.next_refetch_at, 'auto') <= unixepoch(:now))"
+            )
+
+        where_clause = " AND ".join(clauses)
+        query = f"""
+            SELECT m.game_id
+            FROM matches AS m
+            LEFT JOIN match_refetch_status AS s
+                ON s.game_id = m.game_id
+            WHERE {where_clause}
+            ORDER BY unixepoch(m.start_dtm, 'auto') {direction}, m.game_id {direction}
+        """
+        if limit is not None:
+            query += " LIMIT :limit"
+            params["limit"] = int(limit)
+        with self.cursor() as cur:
+            cur.execute(query, params)
+            rows = cur.fetchall()
+        return [int(row["game_id"]) for row in rows]
 
 
 __all__ = ["SQLiteStore", "parse_start_time"]

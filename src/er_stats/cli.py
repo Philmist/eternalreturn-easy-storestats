@@ -173,6 +173,105 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    refetch_parser = subparsers.add_parser(
+        "refetch-incomplete",
+        help="Refetch participant data for matches flagged as incomplete",
+    )
+    refetch_parser.add_argument(
+        "--config",
+        type=Path,
+        help="TOML configuration file providing API defaults",
+    )
+    refetch_parser.add_argument(
+        "--base-url",
+        default="https://open-api.bser.io/",
+        help="Eternal Return API base URL",
+    )
+    refetch_parser.add_argument("--api-key", help="API key for authentication")
+    refetch_parser.add_argument(
+        "--min-interval",
+        type=float,
+        default=1.0,
+        help="Minimum seconds between API requests (rate limit)",
+    )
+    refetch_parser.add_argument(
+        "--max-retries",
+        type=int,
+        default=3,
+        help="Max retries on HTTP 429 Too Many Requests",
+    )
+    refetch_parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Maximum number of incomplete matches to refetch (omit for all)",
+    )
+    refetch_parser.add_argument(
+        "--order",
+        choices=["oldest", "newest"],
+        default="oldest",
+        help="Order to process incomplete matches (default: oldest)",
+    )
+    refetch_parser.add_argument(
+        "--include-missing",
+        action="store_true",
+        default=False,
+        help="Include matches previously marked missing (HTTP 404) when eligible",
+    )
+    refetch_parser.add_argument(
+        "--season",
+        type=int,
+        required=False,
+        help="Season ID filter (optional).",
+    )
+    refetch_parser.add_argument(
+        "--server",
+        required=False,
+        help="Server name filter. Omit to include all servers.",
+    )
+    refetch_parser.add_argument(
+        "--mode",
+        type=parse_matching_mode,
+        required=False,
+        help="Matching mode filter (optional).",
+    )
+    refetch_parser.add_argument(
+        "--team-mode",
+        type=int,
+        default=None,
+        help="Matching team mode filter (optional).",
+    )
+    refetch_parser.add_argument(
+        "--start-dtm",
+        type=str,
+        help="Start datetime (inclusive) in ISO-8601 with timezone, or date (UTC midnight)",
+    )
+    refetch_parser.add_argument(
+        "--end-dtm",
+        type=str,
+        help="End datetime (exclusive) in ISO-8601 with timezone, or date (UTC midnight)",
+    )
+    refetch_parser.add_argument(
+        "--range",
+        dest="time_range",
+        type=str,
+        help=(
+            "Relative time range such as last:3d, last:12h, today, yesterday, "
+            "this-week, prev-week. Cannot be combined with --start-dtm/--end-dtm."
+        ),
+    )
+    refetch_parser.add_argument(
+        "--patch",
+        type=str,
+        help="Patch filter: 'latest', '35.1', or 'season=35,major=1'.",
+    )
+    refetch_parser.add_argument(
+        "--parquet-dir",
+        type=Path,
+        default=None,
+        help="Optional directory to write Parquet datasets during refetch",
+    )
+
     def add_context_args(subparser: argparse.ArgumentParser) -> None:
         subparser.add_argument(
             "--season",
@@ -508,7 +607,7 @@ def resolve_patch_spec(
 def _load_ingest_config(
     args: argparse.Namespace,
 ) -> Tuple[Optional[dict], Optional[int]]:
-    if args.command != "ingest" or args.config is None:
+    if args.command not in {"ingest", "refetch-incomplete"} or args.config is None:
         return None, None
     try:
         ingest_config = load_ingest_config(args.config)
@@ -522,7 +621,7 @@ def _load_ingest_config(
 def _resolve_db_path(
     args: argparse.Namespace, ingest_config: Optional[dict]
 ) -> Optional[Path]:
-    if args.command == "ingest":
+    if args.command in {"ingest", "refetch-incomplete"}:
         if args.db is not None:
             return args.db
         if ingest_config is not None:
@@ -627,6 +726,139 @@ def _run_ingest(
                 pass
         client.close()
     return 0
+
+
+def _run_refetch_incomplete(
+    args: argparse.Namespace, store: SQLiteStore, ingest_config: Optional[dict]
+) -> int:
+    ingest_table = ingest_config.get("ingest", {}) if ingest_config is not None else {}
+    auth_cfg = ingest_config.get("auth", {}) if ingest_config is not None else {}
+    base_url = ingest_table.get("base_url", args.base_url)
+    min_interval = ingest_table.get("min_interval", args.min_interval)
+    max_retries = ingest_table.get("max_retries", args.max_retries)
+
+    api_key = args.api_key
+    if api_key is None:
+        api_key_env_name = auth_cfg.get("api_key_env")
+        if isinstance(api_key_env_name, str) and api_key_env_name:
+            api_key = os.environ.get(api_key_env_name) or None
+    client = EternalReturnAPIClient(
+        base_url,
+        api_key=api_key,
+        min_interval=min_interval,
+        max_retries=max_retries,
+    )
+
+    parquet_exporter = None
+    if args.parquet_dir is not None:
+        try:
+            from .parquet_export import ParquetExporter
+
+            parquet_exporter = ParquetExporter(args.parquet_dir)
+        except Exception as exc:
+            ingest_logger.warning("Parquet export disabled: %s", exc)
+
+    try:
+        try:
+            start_dtm_from, start_dtm_to = parse_time_window(
+                getattr(args, "start_dtm", None),
+                getattr(args, "end_dtm", None),
+                getattr(args, "time_range", None),
+            )
+        except argparse.ArgumentTypeError as exc:
+            logger.error("%s", exc)
+            return 2
+
+        try:
+            patch_spec = parse_patch_spec(getattr(args, "patch", None))
+        except argparse.ArgumentTypeError as exc:
+            logger.error("%s", exc)
+            return 2
+
+        season_override: Optional[int] = None
+        version_major: Optional[int] = None
+        if patch_spec:
+            if patch_spec.latest:
+                if args.mode is None or args.team_mode is None:
+                    logger.error(
+                        "--patch latest requires --mode and --team-mode for refetch."
+                    )
+                    return 2
+                try:
+                    season_override, version_major = resolve_patch_spec(
+                        patch_spec,
+                        store,
+                        server_name=args.server,
+                        matching_mode=args.mode,
+                        matching_team_mode=args.team_mode,
+                    )
+                except argparse.ArgumentTypeError as exc:
+                    logger.error("%s", exc)
+                    return 2
+            else:
+                season_override, version_major = (
+                    patch_spec.season_id,
+                    patch_spec.version_major,
+                )
+                if (
+                    args.season is not None
+                    and season_override is not None
+                    and args.season != season_override
+                ):
+                    logger.error(
+                        "Patch season %s conflicts with --season %s",
+                        season_override,
+                        args.season,
+                    )
+                    return 2
+
+        season_id = season_override if season_override is not None else args.season
+
+        now_iso = dt.datetime.now(dt.timezone.utc).isoformat()
+        game_ids = store.list_refetch_candidates(
+            limit=args.limit,
+            order=args.order,
+            include_missing=args.include_missing,
+            season_id=season_id,
+            server_name=args.server,
+            matching_mode=args.mode,
+            matching_team_mode=args.team_mode,
+            start_dtm_from=start_dtm_from,
+            start_dtm_to=start_dtm_to,
+            version_major=version_major,
+            now=now_iso,
+        )
+        if not game_ids:
+            ingest_logger.info("No incomplete matches found for refetch.")
+            return 0
+
+        def report(message: str) -> None:
+            ingest_logger.info(message)
+
+        manager = IngestionManager(
+            client,
+            store,
+            fetch_game_details=True,
+            parquet_exporter=parquet_exporter,
+            progress_callback=report,
+        )
+        stats = manager.refetch_incomplete_games(game_ids)
+        ingest_logger.info(
+            "Refetch complete: %s total, %s cleared, %s still incomplete, %s empty, %s not found",
+            stats["total"],
+            stats["cleared"],
+            stats["still_incomplete"],
+            stats["empty"],
+            stats["not_found"],
+        )
+        return 0
+    finally:
+        if parquet_exporter is not None:
+            try:
+                parquet_exporter.close()
+            except Exception:
+                pass
+        client.close()
 
 
 def _run_stats(args: argparse.Namespace, store: SQLiteStore) -> int:
@@ -823,6 +1055,8 @@ def run(argv: Optional[Iterable[str]] = None) -> int:
         store.setup_schema()
         if args.command == "ingest":
             return _run_ingest(args, store, ingest_config)
+        if args.command == "refetch-incomplete":
+            return _run_refetch_incomplete(args, store, ingest_config)
         if args.command == "stats":
             return _run_stats(args, store)
         raise ValueError(f"Unsupported command: {args.command}")

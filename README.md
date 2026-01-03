@@ -139,6 +139,21 @@ Ingest stops paging once it reaches previously stored matches for a user. Use
 `--require-metadata-refresh` to abort if the character or item catalogs fail to
 refresh before ingestion begins.
 
+Refetch participant data for matches flagged as incomplete:
+
+```bash
+python -m er_stats.cli --db er.sqlite refetch-incomplete \
+  --base-url https://open-api.bser.io \
+  --api-key $ER_DEV_APIKEY \
+  --limit 100 --order oldest
+```
+
+> [!NOTE]
+> Matches that return zero participants or HTTP 404 remain flagged as incomplete.
+> Refetch failures are retried with a cooldown; use `--include-missing` to retry
+> matches that previously returned 404 once their cooldown has elapsed.
+> Parquet output is only written when `--parquet-dir` is provided.
+
 For recurring jobs with mostly fixed settings, you can use a TOML
 configuration file instead of repeating all options on the command line.
 
