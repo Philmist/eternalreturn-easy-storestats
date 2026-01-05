@@ -685,6 +685,47 @@ def test_cli_mmr_aggregations_match_expected(store, make_game, capsys):
     assert jackie["avg_entry_cost"] == pytest.approx(5.0)
 
 
+def test_cli_mmr_dist_outputs_latest_season(store, make_game, capsys):
+    def add_user(
+        game_id: int,
+        uid: int,
+        season_id: int,
+        mmr_after: int,
+        *,
+        mlbot: bool | None = None,
+    ) -> None:
+        game = make_game(
+            game_id=game_id,
+            nickname=f"user-{uid}",
+            uid=uid,
+            season_id=season_id,
+            matching_team_mode=3,
+            mlbot=mlbot,
+        )
+        game["mmrAfter"] = mmr_after
+        store.upsert_from_game_payload(game)
+
+    add_user(1, 1, 30, 500)
+    add_user(2, 2, 31, 800)
+    add_user(3, 3, 31, 2000, mlbot=True)
+
+    code = run(
+        [
+            "--db",
+            store.path,
+            "stats",
+            "mmr-dist",
+        ]
+    )
+    assert code == 0
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+    assert payload["season_id"] == 31
+    assert payload["total_users"] == 1
+    tiers = {row["tier"]: row for row in payload["tiers"]}
+    assert tiers["Bronze"]["count"] == 1
+
+
 def test_cli_mode_accepts_string_and_infers_team_mode(store, make_game, capsys):
     store.upsert_from_game_payload(
         make_game(

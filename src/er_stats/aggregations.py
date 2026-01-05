@@ -6,6 +6,19 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .db import SQLiteStore
 
+RANKED_MATCHING_MODE = 3
+RANKED_TEAM_MODE = 3
+MMR_TIERS: List[Tuple[str, int, Optional[int]]] = [
+    ("Iron", 0, 600),
+    ("Bronze", 600, 1400),
+    ("Silver", 1400, 2400),
+    ("Gold", 2400, 3600),
+    ("Platinum", 3600, 5000),
+    ("Diamond", 5000, 6400),
+    ("Meteorite", 6400, 7200),
+    ("Mythril", 7200, None),
+]
+
 
 def _context_filters(
     *,
@@ -42,6 +55,110 @@ def _context_filters(
         clauses.append("m.version_major = :version_major")
     where_clause = " WHERE " + " AND ".join(clauses)
     return where_clause, params
+
+
+def resolve_latest_ranked_season_id(
+    store: SQLiteStore,
+    *,
+    matching_mode: int = RANKED_MATCHING_MODE,
+    matching_team_mode: int = RANKED_TEAM_MODE,
+) -> int:
+    """Return the latest season ID with ranked matches."""
+
+    query = """
+        SELECT MAX(season_id) AS max_season
+        FROM matches
+        WHERE matching_mode = :matching_mode
+          AND matching_team_mode = :matching_team_mode
+          AND season_id IS NOT NULL
+    """
+    cur = store.connection.execute(
+        query,
+        {
+            "matching_mode": matching_mode,
+            "matching_team_mode": matching_team_mode,
+        },
+    )
+    row = cur.fetchone()
+    max_season = row["max_season"] if row is not None else None
+    if max_season is None:
+        raise ValueError("No ranked matches found to resolve latest season.")
+    return int(max_season)
+
+
+def _tier_index_for_mmr(mmr: int) -> Optional[int]:
+    for index, (_, min_mmr, max_mmr) in enumerate(MMR_TIERS):
+        if mmr < min_mmr:
+            continue
+        if max_mmr is None or mmr < max_mmr:
+            return index
+    return None
+
+
+def mmr_tier_distribution(store: SQLiteStore) -> Dict[str, Any]:
+    """Return ranked MMR tier distribution for the latest season."""
+
+    season_id = resolve_latest_ranked_season_id(store)
+    query = """
+        WITH eligible_users AS (
+            SELECT DISTINCT ums.uid
+            FROM user_match_stats AS ums
+            JOIN matches AS m ON m.game_id = ums.game_id
+            WHERE m.season_id = :season_id
+              AND m.matching_mode = :matching_mode
+              AND m.matching_team_mode = :matching_team_mode
+              AND m.incomplete = 0
+              AND COALESCE(ums.ml_bot, 0) = 0
+        )
+        SELECT u.uid,
+               u.last_mmr
+        FROM users AS u
+        JOIN eligible_users AS e ON e.uid = u.uid
+        WHERE u.deleted = 0
+          AND COALESCE(u.ml_bot, 0) = 0
+          AND u.last_mmr IS NOT NULL
+          AND u.last_mmr >= 0
+    """
+    cur = store.connection.execute(
+        query,
+        {
+            "season_id": season_id,
+            "matching_mode": RANKED_MATCHING_MODE,
+            "matching_team_mode": RANKED_TEAM_MODE,
+        },
+    )
+    rows = cur.fetchall()
+    total_users = len(rows)
+    counts = [0 for _ in MMR_TIERS]
+    for row in rows:
+        mmr_value = row["last_mmr"]
+        if mmr_value is None:
+            continue
+        tier_index = _tier_index_for_mmr(int(mmr_value))
+        if tier_index is None:
+            continue
+        counts[tier_index] += 1
+
+    tiers = []
+    for (name, min_mmr, max_mmr), count in zip(MMR_TIERS, counts):
+        ratio = count / total_users if total_users else 0.0
+        tiers.append(
+            {
+                "tier": name,
+                "min_mmr": min_mmr,
+                "max_mmr": max_mmr,
+                "count": count,
+                "ratio": ratio,
+            }
+        )
+
+    return {
+        "season_id": season_id,
+        "matching_mode": RANKED_MATCHING_MODE,
+        "matching_team_mode": RANKED_TEAM_MODE,
+        "total_users": total_users,
+        "tiers": tiers,
+    }
 
 
 def character_rankings(
@@ -390,5 +507,6 @@ __all__ = [
     "equipment_rankings",
     "bot_usage_statistics",
     "mmr_change_statistics",
+    "mmr_tier_distribution",
     "team_composition_statistics",
 ]
