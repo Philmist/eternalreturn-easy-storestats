@@ -5,6 +5,7 @@ from er_stats.aggregations import (
     character_rankings,
     equipment_rankings,
     mmr_change_statistics,
+    mmr_tier_distribution,
     team_composition_statistics,
 )
 
@@ -417,3 +418,57 @@ def test_team_composition_statistics_includes_all_servers(store, make_game):
     assert any(row["team_signature"] == "1+2+3" for row in rows_no_names)
     for row in rows_no_names:
         assert "character_names" not in row
+
+
+def test_mmr_tier_distribution_latest_ranked_excludes_bots(store, make_game):
+    def add_user(
+        game_id: int,
+        uid: int,
+        season_id: int,
+        mmr_after: int,
+        *,
+        matching_mode: int = 3,
+        matching_team_mode: int = 3,
+        mlbot: bool | None = None,
+    ) -> None:
+        game = make_game(
+            game_id=game_id,
+            nickname=f"user-{uid}",
+            uid=uid,
+            season_id=season_id,
+            matching_mode=matching_mode,
+            matching_team_mode=matching_team_mode,
+            mlbot=mlbot,
+        )
+        game["mmrAfter"] = mmr_after
+        store.upsert_from_game_payload(game)
+
+    # Older season; should not count.
+    add_user(1, 1, 30, 500)
+    # Latest season users.
+    add_user(2, 2, 31, 200)
+    add_user(3, 3, 31, 1200)
+    add_user(4, 4, 31, 1400)
+    add_user(5, 5, 31, 3600)
+    add_user(6, 6, 31, 7200)
+    # Exclusions.
+    add_user(7, 7, 31, 5000, mlbot=True)
+    add_user(8, 8, 31, 2400, matching_mode=2)
+    add_user(9, 9, 31, 2400, matching_team_mode=2)
+
+    payload = mmr_tier_distribution(store)
+    assert payload["season_id"] == 31
+    assert payload["total_users"] == 5
+
+    tiers = {row["tier"]: row for row in payload["tiers"]}
+    assert tiers["Iron"]["count"] == 1
+    assert tiers["Bronze"]["count"] == 1
+    assert tiers["Silver"]["count"] == 1
+    assert tiers["Platinum"]["count"] == 1
+    assert tiers["Mythril"]["count"] == 1
+    assert tiers["Gold"]["count"] == 0
+    assert tiers["Diamond"]["count"] == 0
+    assert tiers["Meteorite"]["count"] == 0
+
+    assert tiers["Iron"]["ratio"] == pytest.approx(1 / 5)
+    assert tiers["Mythril"]["ratio"] == pytest.approx(1 / 5)

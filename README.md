@@ -255,6 +255,9 @@ python -m er_stats.cli --db er.sqlite stats bot \
 python -m er_stats.cli --db er.sqlite stats mmr \
   --season 25 --server NA --mode ranked
 
+# Ranked MMR tier distribution (latest season only; excludes ML bots)
+python -m er_stats.cli --db er.sqlite stats mmr-dist
+
 # Filter by a specific patch (season + version_major) or the latest patch in the DB
 python -m er_stats.cli --db er.sqlite stats character \
   --server NA --mode ranked --patch latest

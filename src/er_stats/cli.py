@@ -17,6 +17,7 @@ from .aggregations import (
     character_rankings,
     equipment_rankings,
     mmr_change_statistics,
+    mmr_tier_distribution,
     team_composition_statistics,
 )
 from .api_client import EternalReturnAPIClient
@@ -369,6 +370,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "mmr", help="Character MMR gain statistics"
     )
     add_context_args(mmr_parser)
+
+    stats_subparsers.add_parser(
+        "mmr-dist",
+        help="Ranked MMR tier distribution (latest season only)",
+    )
 
     team_parser = stats_subparsers.add_parser(
         "team", help="Team composition performance statistics"
@@ -862,6 +868,16 @@ def _run_refetch_incomplete(
 
 
 def _run_stats(args: argparse.Namespace, store: SQLiteStore) -> int:
+    if args.stats_command == "mmr-dist":
+        try:
+            payload = mmr_tier_distribution(store)
+        except ValueError as exc:
+            logger.error("%s", exc)
+            return 2
+        json.dump(payload, sys.stdout, indent=2)
+        sys.stdout.write("\n")
+        return 0
+
     matching_mode = args.mode
     if args.team_mode is not None:
         matching_team_mode = args.team_mode
