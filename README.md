@@ -216,6 +216,22 @@ python -m er_stats.tools_cli parquet-compact \
 
 Repeat for `matches` if desired, or point `--src` to the root (e.g., `data/parquet`) to rewrite all partitions.
 
+Parquet rebuild (dedupe + match consistency)
+- When Parquet contains duplicate `game_id` rows or mismatched partitions, you can rebuild both datasets to enforce match-level consistency:
+
+```bash
+er-stats-tools parquet-rebuild \
+  --src data/parquet \
+  --dst data/parquet_rebuild \
+  --compression zstd \
+  --max-rows-per-file 250000
+```
+
+The rebuild keeps one match row per `game_id`, preferring rows with all representative fields
+(`season_id`, `server_name`, `matching_mode`, `matching_team_mode`, `start_dtm`) populated, then
+fewer NULLs overall. Participants are de-duplicated by `(game_id, uid)` (nickname fallback) and
+their match context fields are aligned to the selected match row when available.
+
 ### Ingest by nickname
 
 Ingestion seeds now require public nicknames:
