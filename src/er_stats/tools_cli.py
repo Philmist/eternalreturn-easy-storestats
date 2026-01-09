@@ -3,11 +3,13 @@
 Commands
 - parquet-compact: compact and compress a hive-partitioned Parquet dataset.
 - parquet-rebuild: rebuild Parquet datasets with match-level consistency.
+- sqlite-prune: delete old SQLite matches and track tombstones.
 """
 
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import math
 import sys
 from collections import defaultdict
@@ -15,7 +17,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional, Tuple
 
-from .db import parse_start_time
+from .config import ConfigError, load_ingest_config
+from .db import SQLiteStore, parse_start_time
 
 
 @dataclass
@@ -50,6 +53,56 @@ def _date_part(value: Optional[str]) -> Optional[str]:
     if not iso:
         return None
     return str(iso)[:10]
+
+
+def _parse_datetime_or_date(value: str) -> dt.datetime:
+    try:
+        parsed = dt.datetime.fromisoformat(value)
+    except ValueError:
+        try:
+            date_value = dt.date.fromisoformat(value)
+        except ValueError as exc:
+            raise ValueError(f"Invalid datetime/date format: {value}") from exc
+        return dt.datetime.combine(date_value, dt.time(0, 0), tzinfo=dt.timezone.utc)
+    if parsed.tzinfo is None:
+        raise ValueError(f"Timezone offset is required for datetime '{value}'.")
+    return parsed
+
+
+def _resolve_prune_paths(
+    args: argparse.Namespace,
+) -> tuple[Optional[Path], Optional[Path], Optional[int]]:
+    if args.config is None:
+        return args.db, args.parquet_dir, None
+    try:
+        ingest_config = load_ingest_config(args.config)
+    except ConfigError as exc:
+        print(f"{exc}", file=sys.stderr)
+        return None, None, 2
+    ingest_table = ingest_config.get("ingest", {})
+    db_value = ingest_table.get("db_path")
+    parquet_value = ingest_table.get("parquet_dir")
+    config_db = Path(db_value) if isinstance(db_value, str) else None
+    config_parquet = Path(parquet_value) if isinstance(parquet_value, str) else None
+    if config_db is not None:
+        if args.db is not None and args.db != config_db:
+            print(
+                "--db is ignored because config ingest.db_path is set.",
+                file=sys.stderr,
+            )
+        db_path = config_db
+    else:
+        db_path = args.db
+    if config_parquet is not None:
+        if args.parquet_dir is not None and args.parquet_dir != config_parquet:
+            print(
+                "--parquet-dir is ignored because config ingest.parquet_dir is set.",
+                file=sys.stderr,
+            )
+        parquet_dir = config_parquet
+    else:
+        parquet_dir = args.parquet_dir
+    return db_path, parquet_dir, None
 
 
 def _iter_rows(dataset: Any, columns: list[str]) -> Iterable[Dict[str, Any]]:
@@ -209,6 +262,44 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     )
     rebuild.add_argument(
         "--max-rows-per-file", type=int, default=250000, help="Max rows per output file"
+    )
+
+    prune = subparsers.add_parser(
+        "sqlite-prune",
+        help="Delete old matches from SQLite and track tombstones",
+    )
+    prune.add_argument(
+        "--config",
+        type=Path,
+        help="TOML configuration file with ingest.db_path and ingest.parquet_dir",
+    )
+    prune.add_argument("--db", type=Path, help="SQLite database path")
+    prune.add_argument(
+        "--parquet-dir",
+        type=Path,
+        help="Parquet root (informational; no files are modified)",
+    )
+    prune.add_argument(
+        "--before",
+        type=str,
+        help="Delete matches with start_dtm on or before this ISO-8601 datetime or date (UTC).",
+    )
+    prune.add_argument(
+        "--retention-days",
+        type=int,
+        help="Keep only the most recent N days of matches (computed in UTC).",
+    )
+    prune.add_argument(
+        "--apply",
+        action="store_true",
+        default=False,
+        help="Apply deletions (omit for dry-run).",
+    )
+    prune.add_argument(
+        "--vacuum",
+        action="store_true",
+        default=False,
+        help="Run VACUUM after deletion to reclaim disk space.",
     )
 
     return parser.parse_args(argv)
@@ -382,6 +473,78 @@ def run(argv: Optional[Iterable[str]] = None) -> int:
             )
         participants_writer.close()
         return 0
+    if args.command == "sqlite-prune":
+        db_path, parquet_dir, config_error = _resolve_prune_paths(args)
+        if config_error is not None:
+            return config_error
+        if db_path is None:
+            print("--db or ingest.db_path in config is required.", file=sys.stderr)
+            return 2
+        if not db_path.exists():
+            print(f"SQLite DB not found: {db_path}", file=sys.stderr)
+            return 2
+        if args.before and args.retention_days is not None:
+            print("Specify --before or --retention-days, not both.", file=sys.stderr)
+            return 2
+        if args.before:
+            try:
+                cutoff_dt = _parse_datetime_or_date(args.before)
+            except ValueError as exc:
+                print(f"{exc}", file=sys.stderr)
+                return 2
+            reason = "prune_before"
+        elif args.retention_days is not None:
+            if args.retention_days <= 0:
+                print("--retention-days must be greater than 0.", file=sys.stderr)
+                return 2
+            now = dt.datetime.now(dt.timezone.utc)
+            cutoff_dt = now - dt.timedelta(days=int(args.retention_days))
+            reason = "retention_days"
+        else:
+            print(
+                "Either --before or --retention-days is required.",
+                file=sys.stderr,
+            )
+            return 2
+
+        cutoff_iso = cutoff_dt.isoformat()
+        print(f"SQLite DB: {db_path}")
+        if parquet_dir is not None:
+            print(f"Parquet root: {parquet_dir} (not modified)")
+        print(f"Prune cutoff: {cutoff_iso}")
+
+        store = SQLiteStore(str(db_path))
+        try:
+            store.setup_schema()
+            candidate_count = store.count_matches_before(cutoff_iso)
+            print(f"Game IDs to prune: {candidate_count}")
+            if not args.apply:
+                print("Dry-run only. Use --apply to delete matches.")
+                return 0
+            deleted_at = dt.datetime.now(dt.timezone.utc).isoformat()
+            deleted = store.prune_matches_before(
+                cutoff_iso,
+                deleted_at=deleted_at,
+                reason=reason,
+            )
+            existing_prune = store.get_prune_before()
+            if existing_prune:
+                try:
+                    existing_dt = dt.datetime.fromisoformat(existing_prune)
+                except ValueError:
+                    existing_dt = None
+            else:
+                existing_dt = None
+            if existing_dt and existing_dt > cutoff_dt:
+                store.set_prune_before(existing_prune)
+            else:
+                store.set_prune_before(cutoff_iso)
+            if args.vacuum:
+                store.connection.execute("VACUUM")
+            print(f"Deleted game IDs: {deleted}")
+            return 0
+        finally:
+            store.close()
 
     raise ValueError(f"Unsupported command: {args.command}")
 

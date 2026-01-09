@@ -378,3 +378,51 @@ def test_ingest_retries_uid_on_404_using_nickname(store, make_game):
     # First attempt with stale UID, then retry with fresh one
     assert client.fetch_user_games_uids == ["UID-old", "UID-new"]
     assert client.fetch_user_by_nickname_calls == ["seed"]
+
+
+def test_ingest_skips_deleted_game(store, make_game):
+    users = _generate_uids(["100"])
+    deleted_game = make_game(game_id=90, nickname="100", uid=users["100"])
+    deleted_game["startDtm"] = "2025-01-01T00:00:00.000+0000"
+
+    store.connection.execute(
+        """
+        INSERT INTO deleted_matches (game_id, start_dtm, deleted_at, reason)
+        VALUES (?, ?, ?, ?)
+        """,
+        (90, deleted_game["startDtm"], "2025-02-01T00:00:00+00:00", "test"),
+    )
+    store.connection.commit()
+
+    client = FakeClient(
+        pages=[{"userGames": [deleted_game]}], participants={}, users=users
+    )
+    manager = IngestionManager(client, store, fetch_game_details=True)
+
+    manager.ingest_user(users["100"])
+
+    assert not store.has_game(90)
+    assert client.fetch_game_result_calls == []
+
+
+def test_ingest_stops_at_prune_cutoff(store, make_game):
+    users = _generate_uids(["100"])
+
+    newer = make_game(game_id=91, nickname="100", uid=users["100"])
+    newer["startDtm"] = "2025-01-02T00:00:00.000+0000"
+    older = make_game(game_id=92, nickname="100", uid=users["100"])
+    older["startDtm"] = "2024-12-31T00:00:00.000+0000"
+
+    store.set_prune_before("2025-01-01T00:00:00+00:00")
+
+    pages = [{"userGames": [newer, older], "next": "tok"}]
+    client = FakeClient(pages, participants={}, users=users)
+    manager = IngestionManager(
+        client, store, fetch_game_details=False, only_newer_games=False
+    )
+
+    manager.ingest_user(users["100"])
+
+    assert store.has_game(91)
+    assert not store.has_game(92)
+    assert client.fetch_user_games_calls == [None]

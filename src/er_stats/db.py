@@ -121,6 +121,18 @@ class SQLiteStore:
                     FOREIGN KEY (game_id) REFERENCES matches(game_id) ON DELETE CASCADE
                 );
 
+                CREATE TABLE IF NOT EXISTS deleted_matches (
+                    game_id INTEGER PRIMARY KEY,
+                    start_dtm TEXT,
+                    deleted_at TEXT NOT NULL,
+                    reason TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS ingest_state (
+                    key TEXT PRIMARY KEY,
+                    value TEXT
+                );
+
                 CREATE TABLE IF NOT EXISTS user_match_stats (
                     game_id INTEGER NOT NULL,
                     uid TEXT NOT NULL,
@@ -221,6 +233,9 @@ class SQLiteStore:
 
                 CREATE INDEX IF NOT EXISTS idx_refetch_status_next
                     ON match_refetch_status (status, unixepoch(next_refetch_at, 'auto'));
+
+                CREATE INDEX IF NOT EXISTS idx_deleted_matches_start
+                    ON deleted_matches (unixepoch(start_dtm, 'auto'));
                 """
             )
         self.connection.commit()
@@ -607,6 +622,98 @@ class SQLiteStore:
         with self.cursor() as cur:
             cur.execute("SELECT 1 FROM matches WHERE game_id=?", (game_id,))
             return cur.fetchone() is not None
+
+    def get_ingest_state(self, key: str) -> Optional[str]:
+        if not isinstance(key, str) or not key:
+            return None
+        with self.cursor() as cur:
+            cur.execute("SELECT value FROM ingest_state WHERE key=?", (key,))
+            row = cur.fetchone()
+            return row["value"] if row else None
+
+    def set_ingest_state(self, key: str, value: Optional[str]) -> None:
+        if not isinstance(key, str) or not key:
+            return
+        with self.cursor() as cur:
+            if value is None:
+                cur.execute("DELETE FROM ingest_state WHERE key=?", (key,))
+            else:
+                cur.execute(
+                    """
+                    INSERT INTO ingest_state (key, value)
+                    VALUES (?, ?)
+                    ON CONFLICT(key) DO UPDATE SET
+                        value=excluded.value
+                    """,
+                    (key, value),
+                )
+        self.connection.commit()
+
+    def get_prune_before(self) -> Optional[str]:
+        return self.get_ingest_state("prune_before")
+
+    def set_prune_before(self, value: Optional[str]) -> None:
+        self.set_ingest_state("prune_before", value)
+
+    def list_deleted_games(self, game_ids: Iterable[int]) -> Set[int]:
+        ids = [int(value) for value in game_ids if value is not None]
+        if not ids:
+            return set()
+        placeholders = ", ".join(["?"] * len(ids))
+        query = f"SELECT game_id FROM deleted_matches WHERE game_id IN ({placeholders})"
+        with self.cursor() as cur:
+            cur.execute(query, ids)
+            return {int(row["game_id"]) for row in cur.fetchall()}
+
+    def is_game_deleted(self, game_id: int) -> bool:
+        if game_id is None:
+            return False
+        return bool(self.list_deleted_games([int(game_id)]))
+
+    def count_matches_before(self, cutoff_iso: str) -> int:
+        with self.cursor() as cur:
+            cur.execute(
+                """
+                SELECT COUNT(*) AS total
+                FROM matches
+                WHERE start_dtm IS NOT NULL
+                  AND unixepoch(start_dtm, 'auto') <= unixepoch(?, 'auto')
+                """,
+                (cutoff_iso,),
+            )
+            row = cur.fetchone()
+            return int(row["total"]) if row else 0
+
+    def prune_matches_before(
+        self,
+        cutoff_iso: str,
+        *,
+        deleted_at: str,
+        reason: str,
+    ) -> int:
+        with self.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO deleted_matches (game_id, start_dtm, deleted_at, reason)
+                SELECT game_id, start_dtm, ?, ?
+                FROM matches
+                WHERE start_dtm IS NOT NULL
+                  AND unixepoch(start_dtm, 'auto') <= unixepoch(?, 'auto')
+                ON CONFLICT(game_id) DO NOTHING
+                """,
+                (deleted_at, reason, cutoff_iso),
+            )
+            cur.execute(
+                """
+                DELETE FROM matches
+                WHERE start_dtm IS NOT NULL
+                  AND unixepoch(start_dtm, 'auto') <= unixepoch(?, 'auto')
+                """,
+                (cutoff_iso,),
+            )
+            deleted = cur.rowcount if cur.rowcount is not None else 0
+        self.connection.commit()
+        return int(deleted)
 
     def get_user_last_seen(self, uid: str) -> Optional[str]:
         with self.cursor() as cur:

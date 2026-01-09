@@ -232,6 +232,21 @@ The rebuild keeps one match row per `game_id`, preferring rows with all represen
 fewer NULLs overall. Participants are de-duplicated by `(game_id, uid)` (nickname fallback) and
 their match context fields are aligned to the selected match row when available.
 
+SQLite pruning (retain recent matches only)
+- Use the tools CLI to delete matches older than a cutoff and track tombstones so they do not get re-ingested.
+- The command is dry-run by default; add `--apply` to delete rows.
+- When `--config` is provided, `ingest.db_path` and `ingest.parquet_dir` take precedence over CLI flags.
+
+```bash
+er-stats-tools sqlite-prune --config ingest.main.toml \
+  --retention-days 90 --apply
+```
+
+```bash
+er-stats-tools sqlite-prune --db data/er.sqlite --parquet-dir data/parquet \
+  --before 2024-01-01T00:00:00+00:00 --apply
+```
+
 ### Ingest by nickname
 
 Ingestion seeds now require public nicknames:

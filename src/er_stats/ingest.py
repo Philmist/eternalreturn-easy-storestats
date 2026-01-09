@@ -173,8 +173,18 @@ class IngestionManager:
                     cutoff = dt.datetime.fromisoformat(ingested_until)
                 except ValueError:
                     cutoff = None
+        prune_cutoff: Optional[dt.datetime] = None
+        prune_before = self.store.get_prune_before()
+        if prune_before:
+            try:
+                prune_cutoff = dt.datetime.fromisoformat(prune_before)
+            except ValueError:
+                self._report(
+                    f"Ignoring invalid prune cutoff stored in DB: {prune_before}"
+                )
 
         stop_due_to_cutoff = False
+        stop_due_to_prune = False
         while True:
             try:
                 payload = self.client.fetch_user_games(uid, next_token)
@@ -194,23 +204,39 @@ class IngestionManager:
             else:
                 self._mark_uid_checked(uid)
             games = payload.get("userGames", [])
+            deleted_ids = self.store.list_deleted_games(
+                [
+                    game_id
+                    for game_id in (game.get("gameId") for game in games)
+                    if game_id is not None
+                ]
+            )
             for game in games:
-                if cutoff:
-                    start_iso = parse_start_time(game.get("startDtm"))
-                    if start_iso:
-                        try:
-                            start_dt = dt.datetime.fromisoformat(start_iso)
-                        except ValueError:
-                            start_dt = None
-                        else:
-                            if start_dt <= cutoff:
-                                stop_due_to_cutoff = True
-                                self._report(
-                                    "Encountered previously ingested game "
-                                    f"{game.get('gameId')} for uid {uid}; stopping early"
-                                )
-                                break
+                start_iso = parse_start_time(game.get("startDtm"))
+                start_dt = None
+                if start_iso:
+                    try:
+                        start_dt = dt.datetime.fromisoformat(start_iso)
+                    except ValueError:
+                        start_dt = None
+                if prune_cutoff and start_dt and start_dt <= prune_cutoff:
+                    stop_due_to_prune = True
+                    self._report(
+                        "Encountered game older than prune cutoff "
+                        f"{prune_before} for uid {uid}; stopping early"
+                    )
+                    break
+                if cutoff and start_dt and start_dt <= cutoff:
+                    stop_due_to_cutoff = True
+                    self._report(
+                        "Encountered previously ingested game "
+                        f"{game.get('gameId')} for uid {uid}; stopping early"
+                    )
+                    break
                 game_id = game.get("gameId")
+                if game_id in deleted_ids:
+                    self._report(f"Skipping deleted game {game_id} for uid {uid}")
+                    continue
                 game_already_known = bool(game_id and self.store.has_game(game_id))
                 game["uid"] = uid
                 self.store.upsert_from_game_payload(game, mark_ingested=True)
@@ -226,7 +252,7 @@ class IngestionManager:
                     )
                 if self.max_games_per_user and processed >= self.max_games_per_user:
                     break
-            if stop_due_to_cutoff:
+            if stop_due_to_prune or stop_due_to_cutoff:
                 break
             if self.max_games_per_user and processed >= self.max_games_per_user:
                 break
@@ -283,6 +309,9 @@ class IngestionManager:
         force_fetch: bool,
     ) -> tuple[Set[str], bool, int]:
         if not game_id or game_id in self._seen_games:
+            return set(), False, 0
+        if self.store.is_game_deleted(game_id):
+            self._report(f"Skipping deleted game {game_id} participant fetch")
             return set(), False, 0
         self._seen_games.add(game_id)
         if already_known and not force_fetch:
