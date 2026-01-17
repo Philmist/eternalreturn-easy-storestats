@@ -68,6 +68,7 @@ class SQLiteStore:
         )
         self.connection.row_factory = sqlite3.Row
         self.connection.execute("PRAGMA foreign_keys = ON")
+        self._transaction_depth = 0
 
     def close(self) -> None:
         self.connection.close()
@@ -79,6 +80,10 @@ class SQLiteStore:
             yield cur
         finally:
             cur.close()
+
+    def _commit_if_needed(self) -> None:
+        if self._transaction_depth == 0:
+            self.connection.commit()
 
     def setup_schema(self) -> None:
         with self.cursor() as cur:
@@ -238,7 +243,7 @@ class SQLiteStore:
                     ON deleted_matches (unixepoch(start_dtm, 'auto'));
                 """
             )
-        self.connection.commit()
+        self._commit_if_needed()
 
     def upsert_user(self, game: Dict[str, Any], *, mark_ingested: bool = True) -> None:
         nickname = game.get("nickname")
@@ -294,7 +299,7 @@ class SQLiteStore:
                     "last_language": language,
                 },
             )
-        self.connection.commit()
+        self._commit_if_needed()
 
     def upsert_match(self, game: Dict[str, Any]) -> None:
         with self.cursor() as cur:
@@ -342,7 +347,7 @@ class SQLiteStore:
                     "start_dtm": parse_start_time(game.get("startDtm")),
                 },
             )
-        self.connection.commit()
+        self._commit_if_needed()
 
     def upsert_user_match_stats(self, game: Dict[str, Any]) -> None:
         uid = extract_uid(game)
@@ -414,7 +419,7 @@ class SQLiteStore:
                 """,
                 payload,
             )
-        self.connection.commit()
+        self._commit_if_needed()
 
     def replace_equipment(self, game: Dict[str, Any]) -> None:
         uid = extract_uid(game)
@@ -437,7 +442,7 @@ class SQLiteStore:
                     """,
                     (game_id, uid, slot, item_id, grade),
                 )
-        self.connection.commit()
+        self._commit_if_needed()
 
     def replace_mastery_levels(self, game: Dict[str, Any]) -> None:
         mastery_levels = game.get("masteryLevel") or {}
@@ -459,7 +464,7 @@ class SQLiteStore:
                     """,
                     (game_id, uid, int(mastery_id), level),
                 )
-        self.connection.commit()
+        self._commit_if_needed()
 
     def replace_skill_levels(self, game: Dict[str, Any]) -> None:
         skill_levels = game.get("skillLevelInfo") or {}
@@ -481,7 +486,7 @@ class SQLiteStore:
                     """,
                     (game_id, uid, int(code), level),
                 )
-        self.connection.commit()
+        self._commit_if_needed()
 
     def replace_skill_orders(self, game: Dict[str, Any]) -> None:
         skill_orders = game.get("skillOrderInfo") or {}
@@ -503,7 +508,7 @@ class SQLiteStore:
                     """,
                     (game_id, uid, int(sequence), skill_code),
                 )
-        self.connection.commit()
+        self._commit_if_needed()
 
     def upsert_from_game_payload(
         self, game: Dict[str, Any], *, mark_ingested: bool = True
@@ -553,7 +558,7 @@ class SQLiteStore:
                     """,
                     rows,
                 )
-        self.connection.commit()
+        self._commit_if_needed()
         return len(rows)
 
     def refresh_items(self, items: Iterable[Dict[str, Any]]) -> int:
@@ -615,7 +620,7 @@ class SQLiteStore:
                     """,
                     rows,
                 )
-        self.connection.commit()
+        self._commit_if_needed()
         return len(rows)
 
     def has_game(self, game_id: int) -> bool:
@@ -647,7 +652,7 @@ class SQLiteStore:
                     """,
                     (key, value),
                 )
-        self.connection.commit()
+        self._commit_if_needed()
 
     def get_prune_before(self) -> Optional[str]:
         return self.get_ingest_state("prune_before")
@@ -712,7 +717,7 @@ class SQLiteStore:
                 (cutoff_iso,),
             )
             deleted = cur.rowcount if cur.rowcount is not None else 0
-        self.connection.commit()
+        self._commit_if_needed()
         return int(deleted)
 
     def get_user_last_seen(self, uid: str) -> Optional[str]:
@@ -746,7 +751,7 @@ class SQLiteStore:
                 "UPDATE users SET last_checked=? WHERE uid=? AND deleted = 0",
                 (checked_at, uid),
             )
-        self.connection.commit()
+        self._commit_if_needed()
 
     def get_participants_for_game(self, game_id: int) -> Set[str]:
         with self.cursor() as cur:
@@ -770,8 +775,21 @@ class SQLiteStore:
             row = cur.fetchone()
             return row["nickname"] if row else None
 
-    def transaction(self) -> sqlite3.Connection:
-        return self.connection
+    @contextmanager
+    def transaction(self) -> Iterator[None]:
+        self._transaction_depth += 1
+        try:
+            if self._transaction_depth == 1:
+                self.connection.execute("BEGIN")
+            yield
+            if self._transaction_depth == 1:
+                self.connection.commit()
+        except BaseException:
+            if self._transaction_depth == 1:
+                self.connection.rollback()
+            raise
+        finally:
+            self._transaction_depth -= 1
 
     def get_uid_from_nickname(self, nickname: str) -> Optional[str]:
         """Fetch UID by nickname from DB.
@@ -818,7 +836,7 @@ class SQLiteStore:
             cur.execute(
                 "UPDATE matches SET incomplete=1 WHERE game_id=?", (int(game_id),)
             )
-        self.connection.commit()
+        self._commit_if_needed()
 
     def clear_game_incomplete(self, game_id: int) -> None:
         """Clear the incomplete flag for a match."""
@@ -827,7 +845,7 @@ class SQLiteStore:
             cur.execute(
                 "UPDATE matches SET incomplete=0 WHERE game_id=?", (int(game_id),)
             )
-        self.connection.commit()
+        self._commit_if_needed()
 
     def get_refetch_attempts(self, game_id: int) -> int:
         """Return the number of refetch attempts for a match."""
@@ -876,7 +894,7 @@ class SQLiteStore:
                     "last_error": last_error,
                 },
             )
-        self.connection.commit()
+        self._commit_if_needed()
 
     def clear_refetch_status(self, game_id: int) -> None:
         """Remove refetch status for a match."""
@@ -885,7 +903,7 @@ class SQLiteStore:
             cur.execute(
                 "DELETE FROM match_refetch_status WHERE game_id=?", (int(game_id),)
             )
-        self.connection.commit()
+        self._commit_if_needed()
 
     def list_refetch_candidates(
         self,

@@ -6,7 +6,7 @@ import datetime as dt
 import logging
 import time
 from collections import deque
-from typing import Callable, Iterable, Optional, Set
+from typing import Any, Callable, Dict, Iterable, List, Optional, Set
 
 import requests
 
@@ -65,6 +65,18 @@ class IngestionManager:
             self._progress_callback(message)
         else:
             logger.info(message)
+
+    def _queue_parquet_payload(
+        self,
+        payload: Dict[str, Any],
+        parquet_buffer: Optional[List[Dict[str, Any]]],
+    ) -> None:
+        if self._parquet is None:
+            return
+        if parquet_buffer is not None:
+            parquet_buffer.append(dict(payload))
+        else:
+            self._parquet.write_from_game_payload(payload)
 
     def _fetch_uid_with_retries(self, nickname: str) -> Optional[str]:
         last_exc: Optional[Exception] = None
@@ -239,17 +251,26 @@ class IngestionManager:
                     continue
                 game_already_known = bool(game_id and self.store.has_game(game_id))
                 game["uid"] = uid
-                self.store.upsert_from_game_payload(game, mark_ingested=True)
+                parquet_payloads: Optional[List[Dict[str, Any]]] = (
+                    [] if self._parquet is not None else None
+                )
+                with self.store.transaction():
+                    self.store.upsert_from_game_payload(game, mark_ingested=True)
+                    if self.fetch_game_details:
+                        discovered.update(
+                            self._ingest_game_participants(
+                                game_id,
+                                already_known=game_already_known,
+                                parquet_buffer=parquet_payloads,
+                            )
+                        )
                 if self._parquet is not None:
                     self._parquet.write_from_game_payload(game)
+                    if parquet_payloads:
+                        for participant in parquet_payloads:
+                            self._parquet.write_from_game_payload(participant)
                 processed += 1
                 self._report(f"Processed game {processed} for uid {uid}")
-                if self.fetch_game_details:
-                    discovered.update(
-                        self._ingest_game_participants(
-                            game_id, already_known=game_already_known
-                        )
-                    )
                 if self.max_games_per_user and processed >= self.max_games_per_user:
                     break
             if stop_due_to_prune or stop_due_to_cutoff:
@@ -292,12 +313,17 @@ class IngestionManager:
                     queue.append((next_user, current_depth + 1))
 
     def _ingest_game_participants(
-        self, game_id: Optional[int], *, already_known: bool = False
+        self,
+        game_id: Optional[int],
+        *,
+        already_known: bool = False,
+        parquet_buffer: Optional[List[Dict[str, Any]]] = None,
     ) -> Set[str]:
         discovered, _, _ = self._ingest_game_participants_core(
             game_id,
             already_known=already_known,
             force_fetch=False,
+            parquet_buffer=parquet_buffer,
         )
         return discovered
 
@@ -307,6 +333,7 @@ class IngestionManager:
         *,
         already_known: bool,
         force_fetch: bool,
+        parquet_buffer: Optional[List[Dict[str, Any]]] = None,
     ) -> tuple[Set[str], bool, int]:
         if not game_id or game_id in self._seen_games:
             return set(), False, 0
@@ -365,8 +392,7 @@ class IngestionManager:
                         participant, mark_ingested=False
                     )
                     success = True
-                    if self._parquet is not None:
-                        self._parquet.write_from_game_payload(participant)
+                    self._queue_parquet_payload(participant, parquet_buffer)
                     participant_nickname = participant.get("nickname")
                     if isinstance(participant_nickname, str) and participant_nickname:
                         discovered.add(participant_nickname)
@@ -422,12 +448,40 @@ class IngestionManager:
         }
         for game_id in game_ids:
             stats["total"] += 1
+            parquet_payloads: Optional[List[Dict[str, Any]]] = (
+                [] if self._parquet is not None else None
+            )
             try:
-                _, incomplete, participant_count = self._ingest_game_participants_core(
-                    int(game_id),
-                    already_known=True,
-                    force_fetch=True,
-                )
+                with self.store.transaction():
+                    _, incomplete, participant_count = (
+                        self._ingest_game_participants_core(
+                            int(game_id),
+                            already_known=True,
+                            force_fetch=True,
+                            parquet_buffer=parquet_payloads,
+                        )
+                    )
+                    if participant_count == 0:
+                        self._report(
+                            f"Game {game_id} returned 0 participants; keeping incomplete flag"
+                        )
+                        self._record_refetch_failure(
+                            int(game_id),
+                            status="error",
+                            error="empty_participants",
+                        )
+                        stats["empty"] += 1
+                    elif not incomplete:
+                        self.store.clear_game_incomplete(int(game_id))
+                        self.store.clear_refetch_status(int(game_id))
+                        stats["cleared"] += 1
+                    else:
+                        self._record_refetch_failure(
+                            int(game_id),
+                            status="error",
+                            error="incomplete_participants",
+                        )
+                        stats["still_incomplete"] += 1
             except requests.HTTPError as exc:
                 status = getattr(exc.response, "status_code", None)
                 if status == 404:
@@ -442,28 +496,9 @@ class IngestionManager:
                     stats["not_found"] += 1
                     continue
                 raise
-            if participant_count == 0:
-                self._report(
-                    f"Game {game_id} returned 0 participants; keeping incomplete flag"
-                )
-                self._record_refetch_failure(
-                    int(game_id),
-                    status="error",
-                    error="empty_participants",
-                )
-                stats["empty"] += 1
-                continue
-            if not incomplete:
-                self.store.clear_game_incomplete(int(game_id))
-                self.store.clear_refetch_status(int(game_id))
-                stats["cleared"] += 1
-            else:
-                self._record_refetch_failure(
-                    int(game_id),
-                    status="error",
-                    error="incomplete_participants",
-                )
-                stats["still_incomplete"] += 1
+            if self._parquet is not None and parquet_payloads:
+                for participant in parquet_payloads:
+                    self._parquet.write_from_game_payload(participant)
         return stats
 
 

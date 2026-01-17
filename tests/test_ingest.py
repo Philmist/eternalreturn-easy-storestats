@@ -1,6 +1,7 @@
 import datetime as dt
 from typing import Any, Dict, Optional
 
+import pytest
 import requests
 
 from er_stats.ingest import IngestionManager
@@ -343,6 +344,39 @@ def test_ingest_marks_incomplete_on_participant_fail(store, make_game):
     ).fetchone()
     assert row is not None
     assert row[0] == 1
+
+
+def test_ingest_rolls_back_on_interrupt(monkeypatch, store, make_game):
+    seed_uid = "UID-seed"
+    seed_game = make_game(game_id=60, nickname="seed", uid=seed_uid)
+    pages = [{"userGames": [seed_game]}]
+
+    participant = make_game(game_id=60, nickname="other")
+    participants = {60: {"userGames": [participant]}}
+
+    users = {"seed": seed_uid, "other": "UID-other"}
+    client = FakeClient(pages, participants, users)
+    manager = IngestionManager(client, store, fetch_game_details=True)
+
+    original_upsert = store.upsert_from_game_payload
+    call_count = {"count": 0}
+
+    def interrupting_upsert(game, *, mark_ingested=True):
+        call_count["count"] += 1
+        original_upsert(game, mark_ingested=mark_ingested)
+        if call_count["count"] == 2:
+            raise KeyboardInterrupt()
+
+    monkeypatch.setattr(store, "upsert_from_game_payload", interrupting_upsert)
+
+    with pytest.raises(KeyboardInterrupt):
+        manager.ingest_user(seed_uid)
+
+    assert not store.has_game(60)
+    count = store.connection.execute(
+        "SELECT COUNT(*) FROM user_match_stats WHERE game_id=?", (60,)
+    ).fetchone()[0]
+    assert count == 0
 
 
 def test_ingest_retries_uid_on_404_using_nickname(store, make_game):
