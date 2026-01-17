@@ -8,6 +8,7 @@ WITH team AS (
     m.matching_mode,
     array_sort (LIST (p.character_num)) AS characters_id,
     array_sort (LIST (c.name)) AS characters_name,
+    list_count (LIST (p.character_num)) AS players,
     COUNT(*) AS members,
     MAX(p.mmr_gain) AS mmr,
     MAX(p.victory) AS team_victory,
@@ -16,14 +17,14 @@ WITH team AS (
     db.user_match_stats AS p
     JOIN db.matches AS m ON p.game_id = m.game_id
     JOIN db.characters AS c ON c.character_code = p.character_num
-    -- matching_mode, mode_name = [(2, normal) | (3, ranked) | (6, cobalt) | (8, union)]
   WHERE
-    m.matching_mode IN (2, 3)
-  GROUP BY
-    p.game_id,
-    p.team_number,
-    m.matching_mode
-    -- ORDER BY team_rank ASC
+  -- matching_mode, mode_name = [(2, normal) | (3, ranked) | (6, cobalt) | (8, union)]
+  m.matching_mode IN (2, 3)
+GROUP BY
+  p.game_id,
+  p.team_number,
+  m.matching_mode
+  -- ORDER BY team_rank ASC
 )
 SELECT
   characters_id,
@@ -46,12 +47,16 @@ FROM
   team
   -- WHERE characters_id && [58]
   -- WHERE mmr >= 5000
+WHERE
+-- matching_mode, players = [(2, 3) | (3, 3) | (6, 4) | (8, 3]
+players = 3
 GROUP BY
   characters_id,
   characters_name
 HAVING
-  matches_played >= 10 -- samples
+  matches_played >= 15 -- samples
 ORDER BY
+  mmr DESC,
   win_rate DESC,
   matches_played DESC
 LIMIT 20;
