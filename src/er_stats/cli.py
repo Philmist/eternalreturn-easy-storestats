@@ -724,6 +724,9 @@ def _run_ingest(
     )
     try:
         manager.ingest_from_seeds(nickname_sources, depth=depth)
+    except KeyboardInterrupt:
+        ingest_logger.warning("Ingest interrupted by user.")
+        return 130
     finally:
         if parquet_exporter is not None:
             try:
@@ -858,6 +861,9 @@ def _run_refetch_incomplete(
             stats["not_found"],
         )
         return 0
+    except KeyboardInterrupt:
+        ingest_logger.warning("Refetch interrupted by user.")
+        return 130
     finally:
         if parquet_exporter is not None:
             try:

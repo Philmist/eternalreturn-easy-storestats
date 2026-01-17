@@ -1,0 +1,30 @@
+code,name
+1,Glove
+2,Tonfa
+3,Bat
+4,Whip
+5,Throw
+6,Shriken
+7,Bow
+8,Crossbow
+9,Pistol
+10,"Assault Rifle"
+11,"Sniper Rifle"
+13,Hammer
+14,Axe
+15,Dagger
+16,"Two-handed Sword"
+17,Polearm
+18,"Dual Swords"
+19,"Spear"
+20,Nunchaku
+21,Rapier
+22,Guitar
+23,Camera
+24,Arcana
+25,"VF Prosthetics"
+101,Craft
+102,Search
+103,Move
+201,Defense
+202,Hunt
