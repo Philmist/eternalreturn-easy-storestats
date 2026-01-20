@@ -50,7 +50,7 @@ SELECT
 [character_id_a, character_id_b] AS characters_id,
 [character_name_a, character_name_b] AS characters_name,
   COUNT(*) AS matches_played,
-  MAX(mmr) AS mmr,
+  ROUND(AVG(mmr), 2) AS mmr,
   ROUND(AVG(team_rank), 2) AS avg_rank,
   ROUND(SUM(
       CASE WHEN team_victory = 1 THEN
@@ -68,9 +68,9 @@ GROUP BY
 HAVING
   matches_played >= 20 -- samples
 ORDER BY
-  win_rate DESC,
   avg_rank ASC,
   mmr DESC,
+  win_rate DESC,
   matches_played DESC
 LIMIT 20;
 
