@@ -38,8 +38,8 @@ pairs AS (
     list_extract(characters_name, j + 1) AS character_name_b
   FROM
     team
-    CROSS JOIN range(0, list_count(characters_id) - 1) AS i
-    CROSS JOIN range(i + 1, list_count(characters_id)) AS j
+    CROSS JOIN range(0, list_count(characters_id) - 1) AS i(i)
+    CROSS JOIN range(i + 1, list_count(characters_id)) AS j(j)
   WHERE
     -- matching_mode, players = [(2, 3) | (3, 3) | (6, 4) | (8, 3)]
     players = 3
