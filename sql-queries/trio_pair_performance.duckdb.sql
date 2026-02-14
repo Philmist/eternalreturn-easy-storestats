@@ -57,7 +57,13 @@ SELECT
         1
       ELSE
         0
-      END)::double / COUNT(*), 4) AS win_rate
+      END)::double / COUNT(*), 4) AS win_rate,
+  ROUND(SUM(
+      CASE WHEN team_rank <= 3 THEN
+        1
+      ELSE
+        0
+      END)::double / COUNT(*), 4) AS top3_rate
 FROM
   pairs
 WHERE
@@ -69,8 +75,9 @@ HAVING
   matches_played >= 20 -- samples
 ORDER BY
   avg_rank ASC,
-  mmr DESC,
   win_rate DESC,
+  top3_rate DESC,
+  mmr DESC,
   matches_played DESC
 LIMIT 20;
 
