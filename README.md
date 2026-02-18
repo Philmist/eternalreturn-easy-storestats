@@ -2,6 +2,8 @@
 
 Utilities to ingest Eternal Return Open API data into SQLite and run lightweight analytics. Ships as a small Python package with a simple CLI.
 
+Before using this package, you must read [Eternal Return official API document](https://developer.eternalreturn.io/) and obtain an API key.
+
 ## Package Overview
 
 - `er_stats/api_client.py` — minimal HTTP client for the Eternal Return API.
