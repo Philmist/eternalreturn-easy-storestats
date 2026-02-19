@@ -110,6 +110,8 @@ PARTICIPANT_SCHEMA = pa.schema(
         pa.field("adaptive_force_attack", pa.int64()),
         pa.field("adaptive_force_amplify", pa.int64()),
         pa.field("skill_amp", pa.int64()),
+        pa.field("heal_amount", pa.int64()),
+        pa.field("team_recover", pa.int64()),
         # Event / misc
         pa.field("bonus_coin", pa.int64()),
         pa.field("gain_exp", pa.int64()),
@@ -467,6 +469,8 @@ class ParquetExporter:
             "damage_from_monster": _safe_int(game.get("damageFromMonster")),
             "damage_to_monster": _safe_int(game.get("damageToMonster")),
             "damage_to_player_shield": _safe_int(game.get("damageToPlayer_Shield")),
+            "heal_amount": _safe_int(game.get("healAmount")),
+            "team_recover": _safe_int(game.get("teamRecover")),
             "character_level": _safe_int(game.get("characterLevel")),
             "best_weapon": _safe_int(game.get("bestWeapon")),
             "best_weapon_level": _safe_int(game.get("bestWeaponLevel")),
