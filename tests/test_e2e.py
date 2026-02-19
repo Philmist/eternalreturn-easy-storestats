@@ -109,7 +109,18 @@ def test_ingestion_manager_writes_sqlite_and_parquet(store, tmp_path, make_game)
     # Validate expected columns exist in participants (no partition columns inside file)
     t = pq.read_table(participants_files[0], schema=schema)
     cols = set(t.column_names)
-    assert {"game_id", "uid", "character_num", "game_rank"}.issubset(cols)
+    assert {
+        "game_id",
+        "uid",
+        "character_num",
+        "game_rank",
+        "cr_get_animal",
+        "enter_dimension_rift",
+        "get_buff_cube_red",
+        "using_default_game_option",
+        "reunited_count",
+        "time_spent_in_briefing_room",
+    }.issubset(cols)
 
     # Verify hive partition directories (season/server/mode/date) without matching_team_mode
     any_participant = participants_files[0]

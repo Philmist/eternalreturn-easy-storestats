@@ -215,6 +215,14 @@ PARTICIPANT_SCHEMA = pa.schema(
         pa.field("cr_use_vf_blood_sample", pa.int64()),
         pa.field("cr_use_activation_module", pa.int64()),
         pa.field("cr_use_rootkit", pa.int64()),
+        pa.field("cr_get_animal", pa.int64()),
+        pa.field("cr_get_mutant", pa.int64()),
+        pa.field("cr_get_phase_start", pa.int64()),
+        pa.field("cr_get_kill", pa.int64()),
+        pa.field("cr_get_assist", pa.int64()),
+        pa.field("cr_get_time_elapsed", pa.int64()),
+        pa.field("cr_get_credit_bonus", pa.int64()),
+        pa.field("cr_get_by_guide_robot", pa.int64()),
         pa.field("team_elimination", pa.int64()),
         pa.field("team_down", pa.int64()),
         pa.field("team_battle_zone_down", pa.int64()),
@@ -227,6 +235,9 @@ PARTICIPANT_SCHEMA = pa.schema(
         pa.field("terminate_count_can_not_eliminate", pa.int64()),
         pa.field("clutch_count", pa.int64()),
         pa.field("total_tk_per_min", pa.list_(pa.int64())),
+        pa.field("enter_dimension_rift", pa.int64()),
+        pa.field("enter_dimension_empowered_rift", pa.int64()),
+        pa.field("enter_turbulent_rift", pa.int64()),
         pa.field("win_from_dimension_rift", pa.int64()),
         pa.field("win_from_dimension_empowered_rift", pa.int64()),
         pa.field("item_shredder_gain_vf_credit", pa.int64()),
@@ -240,6 +251,15 @@ PARTICIPANT_SCHEMA = pa.schema(
         pa.field("infusion_trait_use_vf_credit", pa.int64()),
         pa.field("infusion_relic_use_vf_credit", pa.int64()),
         pa.field("infusion_store_use_vf_credit", pa.int64()),
+        pa.field("get_buff_cube_red", pa.int64()),
+        pa.field("get_buff_cube_purple", pa.int64()),
+        pa.field("get_buff_cube_green", pa.int64()),
+        pa.field("get_buff_cube_gold", pa.int64()),
+        pa.field("get_buff_cube_sky_blue", pa.int64()),
+        pa.field("sum_get_buff_cube", pa.int64()),
+        pa.field("using_default_game_option", pa.bool_()),
+        pa.field("reunited_count", pa.int64()),
+        pa.field("time_spent_in_briefing_room", pa.int64()),
         pa.field("main_weather", pa.int64()),
         pa.field("sub_weather", pa.int64()),
         pa.field("total_turbine_take_over", pa.int64()),
@@ -676,6 +696,14 @@ class ParquetExporter:
         row["cr_use_vf_blood_sample"] = _safe_int(game.get("crUseVFBloodSample"))
         row["cr_use_activation_module"] = _safe_int(game.get("crUseActivationModule"))
         row["cr_use_rootkit"] = _safe_int(game.get("crUseRootkit"))
+        row["cr_get_animal"] = _safe_int(game.get("crGetAnimal"))
+        row["cr_get_mutant"] = _safe_int(game.get("crGetMutant"))
+        row["cr_get_phase_start"] = _safe_int(game.get("crGetPhaseStart"))
+        row["cr_get_kill"] = _safe_int(game.get("crGetKill"))
+        row["cr_get_assist"] = _safe_int(game.get("crGetAssist"))
+        row["cr_get_time_elapsed"] = _safe_int(game.get("crGetTimeElapsed"))
+        row["cr_get_credit_bonus"] = _safe_int(game.get("crGetCreditBonus"))
+        row["cr_get_by_guide_robot"] = _safe_int(game.get("crGetByGuideRobot"))
         row["team_elimination"] = _safe_int(game.get("teamElimination"))
         row["team_down"] = _safe_int(game.get("teamDown"))
         row["team_battle_zone_down"] = _safe_int(game.get("teamBattleZoneDown"))
@@ -696,6 +724,11 @@ class ParquetExporter:
         )
         row["clutch_count"] = _safe_int(game.get("clutchCount"))
         row["total_tk_per_min"] = _safe_list_int(game.get("totalTKPerMin"))
+        row["enter_dimension_rift"] = _safe_int(game.get("enterDimensionRift"))
+        row["enter_dimension_empowered_rift"] = _safe_int(
+            game.get("enterDimensionEmpoweredRift")
+        )
+        row["enter_turbulent_rift"] = _safe_int(game.get("enterTurbulentRift"))
         row["win_from_dimension_rift"] = _safe_int(game.get("winFromDimensionRift"))
         row["win_from_dimension_empowered_rift"] = _safe_int(
             game.get("winFromDimensionEmpoweredRift")
@@ -729,6 +762,21 @@ class ParquetExporter:
         )
         row["infusion_store_use_vf_credit"] = _safe_int(
             game.get("infusionStoreUseVFCredit")
+        )
+        row["get_buff_cube_red"] = _safe_int(game.get("getBuffCubeRed"))
+        row["get_buff_cube_purple"] = _safe_int(game.get("getBuffCubePurple"))
+        row["get_buff_cube_green"] = _safe_int(game.get("getBuffCubeGreen"))
+        row["get_buff_cube_gold"] = _safe_int(game.get("getBuffCubeGold"))
+        row["get_buff_cube_sky_blue"] = _safe_int(game.get("getBuffCubeSkyBlue"))
+        row["sum_get_buff_cube"] = _safe_int(game.get("sumGetBuffCube"))
+        row["using_default_game_option"] = (
+            bool(game.get("usingDefaultGameOption"))
+            if game.get("usingDefaultGameOption") is not None
+            else None
+        )
+        row["reunited_count"] = _safe_int(game.get("reunitedCount"))
+        row["time_spent_in_briefing_room"] = _safe_int(
+            game.get("timeSpentInBriefingRoom")
         )
         row["item_shredder_gain_vf_credit"] = _safe_int(
             game.get("itemShredderGainVFCredit")
