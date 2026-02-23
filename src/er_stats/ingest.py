@@ -65,6 +65,7 @@ class IngestionManager:
         self.participant_retry_delay = float(participant_retry_delay)
         self.ingest_started_at = dt.datetime.now(dt.timezone.utc)
         self._not_found_nicknames: Set[str] = set()
+        self._payload_not_found_uids_by_seed: Dict[str, Set[str]] = {}
 
     def _report(self, message: str) -> None:
         if self._progress_callback:
@@ -126,6 +127,22 @@ class IngestionManager:
         if cached_uid:
             return cached_uid
         return self._fetch_uid_with_retries(nickname)
+
+    def _record_seed_payload_not_found_uid(self, seed_nickname: str, uid: str) -> None:
+        if not seed_nickname:
+            return
+        if not isinstance(uid, str) or not uid:
+            return
+        uid_set = self._payload_not_found_uids_by_seed.setdefault(seed_nickname, set())
+        uid_set.add(uid)
+
+    def _is_seed_payload_not_found_uid(self, seed_nickname: str, uid: str) -> bool:
+        if not seed_nickname:
+            return False
+        if not isinstance(uid, str) or not uid:
+            return False
+        uid_set = self._payload_not_found_uids_by_seed.get(seed_nickname)
+        return uid_set is not None and uid in uid_set
 
     def _needs_uid_recheck(self, uid: str) -> bool:
         last_checked = self.store.get_user_last_checked(uid)
@@ -226,14 +243,29 @@ class IngestionManager:
                 payload = self.client.fetch_user_games(uid, next_token)
             except (requests.HTTPError, ApiResponseError) as exc:
                 if is_payload_not_found_error(exc) and seed_nickname:
+                    self._record_seed_payload_not_found_uid(seed_nickname, uid)
                     self._report(
                         f"UID {uid} returned 404; retrying nickname lookup for '{seed_nickname}'"
                     )
                     resolved_uid = self._fetch_uid_with_retries(seed_nickname)
-                    if resolved_uid and resolved_uid != uid:
-                        uid = resolved_uid
-                        next_token = None
-                        continue
+                    if not resolved_uid:
+                        self._report(
+                            f"Stopping ingest for seed '{seed_nickname}' because nickname lookup failed after payload 404."
+                        )
+                        break
+                    if resolved_uid == uid:
+                        self._report(
+                            f"Stopping ingest for seed '{seed_nickname}' because resolved uid remained unchanged after payload 404 ({uid})."
+                        )
+                        break
+                    if self._is_seed_payload_not_found_uid(seed_nickname, resolved_uid):
+                        self._report(
+                            f"Stopping ingest for seed '{seed_nickname}' because resolved uid {resolved_uid} already returned payload 404 in this run."
+                        )
+                        break
+                    uid = resolved_uid
+                    next_token = None
+                    continue
                 if is_transport_not_found_error(exc):
                     self._report(
                         f"Aborting ingest for uid {uid} due to unrecoverable HTTP 404: {exc}"

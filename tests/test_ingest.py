@@ -488,6 +488,154 @@ def test_ingest_retries_uid_on_payload_404_using_nickname(store, make_game):
     assert client.fetch_user_by_nickname_calls == ["seed"]
 
 
+def test_ingest_stops_seed_on_repeated_payload_404_resolved_uid_cycle(store, make_game):
+    class CyclingUidClient(FakeClient):
+        def __init__(
+            self,
+            pages: list[Dict[str, Any]],
+            participants: Dict[int, Dict[str, Any]],
+            users: Dict[str, str],
+        ):
+            super().__init__(pages, participants, users)
+            self._resolve_count = 0
+
+        def fetch_user_by_nickname(self, nickname: str) -> Dict[str, Any]:
+            self.fetch_user_by_nickname_calls.append(nickname)
+            uid = "UID-b" if self._resolve_count == 0 else "UID-a"
+            self._resolve_count += 1
+            return {
+                "code": 200,
+                "message": "Success",
+                "user": {
+                    "nickname": nickname,
+                    "userId": uid,
+                },
+            }
+
+        def fetch_user_games(
+            self, uid: str, next_token: Optional[str] = None
+        ) -> Dict[str, Any]:
+            self.fetch_user_games_calls.append(next_token)
+            self.fetch_user_games_uids.append(uid)
+            if uid in {"UID-a", "UID-b"}:
+                raise ApiResponseError(
+                    code=404,
+                    message="User Not Found",
+                    payload={"code": 404, "message": "User Not Found"},
+                    url=f"https://example.invalid/v1/user/games/uid/{uid}",
+                )
+            return {"userGames": []}
+
+    client = CyclingUidClient([], {}, {})
+    manager = IngestionManager(client, store, fetch_game_details=False)
+
+    discovered = manager.ingest_user("UID-a", seed_nickname="seed")
+
+    assert discovered == set()
+    assert client.fetch_user_games_uids == ["UID-a", "UID-b"]
+    assert client.fetch_user_by_nickname_calls == ["seed", "seed"]
+
+
+def test_ingest_stops_seed_when_payload_404_resolves_to_same_uid(store, make_game):
+    class SameUidClient(FakeClient):
+        def fetch_user_by_nickname(self, nickname: str) -> Dict[str, Any]:
+            self.fetch_user_by_nickname_calls.append(nickname)
+            return {
+                "code": 200,
+                "message": "Success",
+                "user": {
+                    "nickname": nickname,
+                    "userId": "UID-a",
+                },
+            }
+
+        def fetch_user_games(
+            self, uid: str, next_token: Optional[str] = None
+        ) -> Dict[str, Any]:
+            self.fetch_user_games_calls.append(next_token)
+            self.fetch_user_games_uids.append(uid)
+            raise ApiResponseError(
+                code=404,
+                message="User Not Found",
+                payload={"code": 404, "message": "User Not Found"},
+                url=f"https://example.invalid/v1/user/games/uid/{uid}",
+            )
+
+    client = SameUidClient([], {}, {})
+    manager = IngestionManager(client, store, fetch_game_details=False)
+
+    discovered = manager.ingest_user("UID-a", seed_nickname="seed")
+
+    assert discovered == set()
+    assert client.fetch_user_games_uids == ["UID-a"]
+    assert client.fetch_user_by_nickname_calls == ["seed"]
+
+
+def test_ingest_from_seeds_continues_after_payload_404_seed_stop(store, make_game):
+    class MixedSeedClient(FakeClient):
+        def __init__(
+            self,
+            pages: list[Dict[str, Any]],
+            participants: Dict[int, Dict[str, Any]],
+            users: Dict[str, str],
+        ):
+            super().__init__(pages, participants, users)
+            self._seed1_resolve_count = 0
+
+        def fetch_user_by_nickname(self, nickname: str) -> Dict[str, Any]:
+            self.fetch_user_by_nickname_calls.append(nickname)
+            if nickname == "seed1":
+                if self._seed1_resolve_count == 0:
+                    uid = "UID-a"
+                elif self._seed1_resolve_count == 1:
+                    uid = "UID-b"
+                else:
+                    uid = "UID-a"
+                self._seed1_resolve_count += 1
+                return {
+                    "code": 200,
+                    "message": "Success",
+                    "user": {
+                        "nickname": nickname,
+                        "userId": uid,
+                    },
+                }
+            if nickname == "seed2":
+                return {
+                    "code": 200,
+                    "message": "Success",
+                    "user": {
+                        "nickname": nickname,
+                        "userId": "UID-c",
+                    },
+                }
+            return super().fetch_user_by_nickname(nickname)
+
+        def fetch_user_games(
+            self, uid: str, next_token: Optional[str] = None
+        ) -> Dict[str, Any]:
+            self.fetch_user_games_calls.append(next_token)
+            self.fetch_user_games_uids.append(uid)
+            if uid in {"UID-a", "UID-b"}:
+                raise ApiResponseError(
+                    code=404,
+                    message="User Not Found",
+                    payload={"code": 404, "message": "User Not Found"},
+                    url=f"https://example.invalid/v1/user/games/uid/{uid}",
+                )
+            if uid == "UID-c":
+                return {"userGames": [make_game(game_id=70, nickname="seed2", uid=uid)]}
+            return {"userGames": []}
+
+    client = MixedSeedClient([], {}, {})
+    manager = IngestionManager(client, store, fetch_game_details=False)
+
+    manager.ingest_from_seeds(["seed1", "seed2"], depth=0)
+
+    assert client.fetch_user_games_uids[:2] == ["UID-a", "UID-b"]
+    assert "UID-c" in client.fetch_user_games_uids
+
+
 def test_ingest_raises_on_http_404_endpoint_error(store, make_game):
     class HTTP404Client(FakeClient):
         def __init__(
