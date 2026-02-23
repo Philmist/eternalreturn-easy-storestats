@@ -1,0 +1,1 @@
+curl -X GET "https://open-api.bser.io/v1/user/games/uid/_ySkmQkV18dXlS0r5eaHihgU_QVxwQL8bDEVBi1RDVggCv0c4RzcYqWOS-w" -H  "accept: application/json" -H  "x-api-key: $Env:ER_DEV_APIKEY" > unbounded-uid-games.json

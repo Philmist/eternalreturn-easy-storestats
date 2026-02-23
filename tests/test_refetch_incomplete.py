@@ -1,8 +1,10 @@
 import datetime as dt
 from typing import Any, Dict, Optional, Set
 
+import pytest
 import requests
 
+from er_stats.api_client import ApiResponseError
 from er_stats.ingest import IngestionManager
 
 
@@ -13,10 +15,12 @@ class FakeClient:
         users: Dict[str, str],
         *,
         missing_game_ids: Optional[Set[int]] = None,
+        missing_payload_game_ids: Optional[Set[int]] = None,
     ) -> None:
         self.participants = participants
         self.users = users
         self.missing_game_ids = set(missing_game_ids or set())
+        self.missing_payload_game_ids = set(missing_payload_game_ids or set())
         self.fetch_game_result_calls: list[int] = []
         self.fetch_user_by_nickname_calls: list[str] = []
 
@@ -26,6 +30,13 @@ class FakeClient:
             response = requests.Response()
             response.status_code = 404
             raise requests.HTTPError(response=response)
+        if game_id in self.missing_payload_game_ids:
+            raise ApiResponseError(
+                code=404,
+                message="User Not Found",
+                payload={"code": 404, "message": "User Not Found"},
+                url=f"https://example.invalid/v1/games/{game_id}",
+            )
         return self.participants.get(game_id, {"userGames": []})
 
     def fetch_user_by_nickname(self, nickname: str) -> Dict[str, Any]:
@@ -89,12 +100,12 @@ def test_refetch_keeps_incomplete_on_empty_participants(store, make_game):
     assert stats["empty"] == 1
 
 
-def test_refetch_keeps_incomplete_on_404(store, make_game):
+def test_refetch_keeps_incomplete_on_payload_404(store, make_game):
     seed_game = make_game(game_id=3, nickname="seed", uid="UID-seed")
     store.upsert_from_game_payload(seed_game)
     store.mark_game_incomplete(3)
 
-    client = FakeClient({}, {}, missing_game_ids={3})
+    client = FakeClient({}, {}, missing_payload_game_ids={3})
     manager = _make_manager(client, store)
 
     stats = manager.refetch_incomplete_games([3])
@@ -112,6 +123,18 @@ def test_refetch_keeps_incomplete_on_404(store, make_game):
     assert status_row is not None
     assert status_row["status"] == "missing"
     assert status_row["next_refetch_at"] is not None
+
+
+def test_refetch_raises_on_http_404_endpoint_error(store, make_game):
+    seed_game = make_game(game_id=13, nickname="seed", uid="UID-seed")
+    store.upsert_from_game_payload(seed_game)
+    store.mark_game_incomplete(13)
+
+    client = FakeClient({}, {}, missing_game_ids={13})
+    manager = _make_manager(client, store)
+
+    with pytest.raises(requests.HTTPError):
+        manager.refetch_incomplete_games([13])
 
 
 def test_list_refetch_candidates_filters(store, make_game):

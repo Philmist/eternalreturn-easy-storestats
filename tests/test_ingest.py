@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional
 import pytest
 import requests
 
+from er_stats.api_client import ApiResponseError
 from er_stats.ingest import IngestionManager
 
 
@@ -379,7 +380,45 @@ def test_ingest_rolls_back_on_interrupt(monkeypatch, store, make_game):
     assert count == 0
 
 
-def test_ingest_retries_uid_on_404_using_nickname(store, make_game):
+def test_ingest_retries_uid_on_payload_404_using_nickname(store, make_game):
+    class Payload404Client(FakeClient):
+        def __init__(
+            self,
+            pages: list[Dict[str, Any]],
+            participants: Dict[int, Dict[str, Any]],
+            users: Dict[str, str],
+        ):
+            super().__init__(pages, participants, users)
+            self.stale_uid = "UID-old"
+
+        def fetch_user_games(
+            self, uid: str, next_token: Optional[str] = None
+        ) -> Dict[str, Any]:
+            self.fetch_user_games_calls.append(next_token)
+            self.fetch_user_games_uids.append(uid)
+            if uid == self.stale_uid:
+                raise ApiResponseError(
+                    code=404,
+                    message="User Not Found",
+                    payload={"code": 404, "message": "User Not Found"},
+                    url="https://example.invalid/v1/user/games/uid/stale",
+                )
+            if next_token is None:
+                return self.pages[0]
+            return self.pages[1]
+
+    pages = [{"userGames": [make_game(game_id=50, nickname="seed")]}]
+    client = Payload404Client(pages, {}, {"seed": "UID-new"})
+    manager = IngestionManager(client, store, fetch_game_details=False)
+
+    manager.ingest_user("UID-old", seed_nickname="seed")
+
+    # First attempt with stale UID, then retry with fresh one
+    assert client.fetch_user_games_uids == ["UID-old", "UID-new"]
+    assert client.fetch_user_by_nickname_calls == ["seed"]
+
+
+def test_ingest_raises_on_http_404_endpoint_error(store, make_game):
     class HTTP404Client(FakeClient):
         def __init__(
             self,
@@ -407,11 +446,11 @@ def test_ingest_retries_uid_on_404_using_nickname(store, make_game):
     client = HTTP404Client(pages, {}, {"seed": "UID-new"})
     manager = IngestionManager(client, store, fetch_game_details=False)
 
-    manager.ingest_user("UID-old", seed_nickname="seed")
+    with pytest.raises(requests.HTTPError):
+        manager.ingest_user("UID-old", seed_nickname="seed")
 
-    # First attempt with stale UID, then retry with fresh one
-    assert client.fetch_user_games_uids == ["UID-old", "UID-new"]
-    assert client.fetch_user_by_nickname_calls == ["seed"]
+    assert client.fetch_user_games_uids == ["UID-old"]
+    assert client.fetch_user_by_nickname_calls == []
 
 
 def test_ingest_skips_deleted_game(store, make_game):

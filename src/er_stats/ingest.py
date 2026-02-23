@@ -10,13 +10,18 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Set
 
 import requests
 
-from .api_client import EternalReturnAPIClient
+from .api_client import (
+    ApiResponseError,
+    EternalReturnAPIClient,
+    is_payload_not_found_error,
+    is_transport_not_found_error,
+)
 from .db import SQLiteStore, parse_start_time
 
 try:
     # Optional Parquet export; available when pyarrow is installed
     from .parquet_export import ParquetExporter
-except Exception:  # pragma: no cover - optional dependency
+except ImportError:  # pragma: no cover - optional dependency
     ParquetExporter = None  # type: ignore
 
 
@@ -32,10 +37,10 @@ class IngestionManager:
         client: EternalReturnAPIClient,
         store: SQLiteStore,
         *,
-        max_games_per_user: Optional[int] = None,
+        max_games_per_user: int | None = None,
         fetch_game_details: bool = True,
-        progress_callback: Optional[Callable[[str], None]] = None,
-        parquet_exporter: Optional["ParquetExporter"] = None,
+        progress_callback: Callable[[str], None] | None = None,
+        parquet_exporter: "ParquetExporter" | None = None,
         only_newer_games: bool = False,
         prefer_nickname_fetch: bool = False,
         nickname_recheck_interval: dt.timedelta = dt.timedelta(hours=24),
@@ -140,9 +145,8 @@ class IngestionManager:
             self.client.fetch_user_games(uid, None)
             self._mark_uid_checked(uid)
             return uid
-        except requests.HTTPError as exc:
-            status = getattr(exc.response, "status_code", None)
-            if status == 404 and nickname:
+        except (requests.HTTPError, ApiResponseError) as exc:
+            if is_payload_not_found_error(exc) and nickname:
                 resolved_uid = self._fetch_uid_with_retries(nickname)
                 if resolved_uid:
                     self._mark_uid_checked(resolved_uid)
@@ -169,6 +173,16 @@ class IngestionManager:
                     )
                     return discovered
                 uid = validated
+            except (requests.HTTPError, ApiResponseError) as exc:
+                if is_transport_not_found_error(exc):
+                    self._report(
+                        f"Aborting ingest for uid {uid} due to unrecoverable HTTP 404: {exc}"
+                    )
+                    raise
+                self._report(
+                    f"Aborting ingest for uid {uid} due to validation error: {exc}"
+                )
+                return discovered
             except Exception as exc:
                 self._report(
                     f"Aborting ingest for uid {uid} due to validation error: {exc}"
@@ -200,9 +214,8 @@ class IngestionManager:
         while True:
             try:
                 payload = self.client.fetch_user_games(uid, next_token)
-            except requests.HTTPError as exc:
-                status = getattr(exc.response, "status_code", None)
-                if status == 404 and seed_nickname:
+            except (requests.HTTPError, ApiResponseError) as exc:
+                if is_payload_not_found_error(exc) and seed_nickname:
                     self._report(
                         f"UID {uid} returned 404; retrying nickname lookup for '{seed_nickname}'"
                     )
@@ -211,6 +224,11 @@ class IngestionManager:
                         uid = resolved_uid
                         next_token = None
                         continue
+                if is_transport_not_found_error(exc):
+                    self._report(
+                        f"Aborting ingest for uid {uid} due to unrecoverable HTTP 404: {exc}"
+                    )
+                    raise
                 self._report(f"Aborting ingest for uid {uid} due to error: {exc}")
                 break
             else:
@@ -270,7 +288,7 @@ class IngestionManager:
                         for participant in parquet_payloads:
                             self._parquet.write_from_game_payload(participant)
                 processed += 1
-                self._report(f"Processed game {processed} for uid {uid}")
+                self._report(f"Processed game {processed}({game_id}) for uid {uid}")
                 if self.max_games_per_user and processed >= self.max_games_per_user:
                     break
             if stop_due_to_prune or stop_due_to_cutoff:
@@ -482,9 +500,8 @@ class IngestionManager:
                             error="incomplete_participants",
                         )
                         stats["still_incomplete"] += 1
-            except requests.HTTPError as exc:
-                status = getattr(exc.response, "status_code", None)
-                if status == 404:
+            except (requests.HTTPError, ApiResponseError) as exc:
+                if is_payload_not_found_error(exc):
                     self._report(
                         f"Game {game_id} returned 404; keeping incomplete flag"
                     )
@@ -495,6 +512,10 @@ class IngestionManager:
                     )
                     stats["not_found"] += 1
                     continue
+                if is_transport_not_found_error(exc):
+                    self._report(
+                        f"Game {game_id} failed due to unrecoverable HTTP 404: {exc}"
+                    )
                 raise
             if self._parquet is not None and parquet_payloads:
                 for participant in parquet_payloads:

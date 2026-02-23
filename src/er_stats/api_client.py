@@ -13,6 +13,39 @@ import time
 import requests
 
 
+class ApiResponseError(Exception):
+    """Raised when API returns an application-level non-success code."""
+
+    def __init__(
+        self,
+        *,
+        code: int | None,
+        message: str,
+        payload: Dict[str, Any],
+        url: str,
+    ) -> None:
+        self.code = code
+        self.message = message
+        self.payload = payload
+        self.url = url
+        super().__init__(f"API error code={code} message='{message}' url={url}")
+
+
+def is_transport_not_found_error(exc: Exception) -> bool:
+    """Return True when an exception represents HTTP 404 at transport layer."""
+
+    if not isinstance(exc, requests.HTTPError):
+        return False
+    status = getattr(exc.response, "status_code", None)
+    return status == 404
+
+
+def is_payload_not_found_error(exc: Exception) -> bool:
+    """Return True when API payload-level code indicates not found."""
+
+    return isinstance(exc, ApiResponseError) and exc.code == 404
+
+
 class EternalReturnAPIClient:
     """Lightweight client for the Eternal Return API."""
 
@@ -173,7 +206,30 @@ class EternalReturnAPIClient:
                 response.raise_for_status()
             # Normal happy path
             response.raise_for_status()
-            return response.json()
+            payload = response.json()
+            if isinstance(payload, dict) and "code" in payload:
+                code = payload.get("code")
+                if not isinstance(code, int):
+                    try:
+                        code = int(code)
+                    except (TypeError, ValueError):
+                        code = None
+                if code != 200:
+                    message = payload.get("message")
+                    raise ApiResponseError(
+                        code=code,
+                        message=message
+                        if isinstance(message, str)
+                        else "Unknown error",
+                        payload=payload,
+                        url=url,
+                    )
+            return payload
 
 
-__all__ = ["EternalReturnAPIClient"]
+__all__ = [
+    "ApiResponseError",
+    "EternalReturnAPIClient",
+    "is_payload_not_found_error",
+    "is_transport_not_found_error",
+]
