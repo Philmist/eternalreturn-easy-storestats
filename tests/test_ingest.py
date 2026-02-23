@@ -285,6 +285,76 @@ def test_ingest_skips_unresolved_nickname_after_retries(store, make_game):
     assert count == 0
 
 
+def test_ingest_treats_payload_404_nickname_as_missing_in_current_run(store, make_game):
+    class Nickname404Client(FakeClient):
+        def fetch_user_by_nickname(self, nickname: str) -> Dict[str, Any]:
+            self.fetch_user_by_nickname_calls.append(nickname)
+            raise ApiResponseError(
+                code=404,
+                message="User Not Found",
+                payload={"code": 404, "message": "User Not Found"},
+                url="https://example.invalid/v1/user/nickname?query=ghost",
+            )
+
+    seed_uid = "UID-seed"
+    seed_game = make_game(game_id=21, nickname="seed", uid=seed_uid)
+    pages = [{"userGames": [seed_game]}]
+    missing_nickname = "ghost"
+    participant = make_game(game_id=21, nickname=missing_nickname)
+    participants = {21: {"userGames": [participant]}}
+
+    client = Nickname404Client(pages, participants, {})
+    manager = IngestionManager(
+        client,
+        store,
+        max_nickname_attempts=5,
+        participant_retry_attempts=2,
+        participant_retry_delay=0.0,
+    )
+
+    manager.ingest_user(seed_uid)
+
+    # Payload 404 marks nickname as missing and suppresses additional calls.
+    assert client.fetch_user_by_nickname_calls == [missing_nickname]
+
+
+def test_ingest_reuses_missing_nickname_cache_across_participants(store, make_game):
+    class Nickname404Client(FakeClient):
+        def fetch_user_by_nickname(self, nickname: str) -> Dict[str, Any]:
+            self.fetch_user_by_nickname_calls.append(nickname)
+            raise ApiResponseError(
+                code=404,
+                message="User Not Found",
+                payload={"code": 404, "message": "User Not Found"},
+                url="https://example.invalid/v1/user/nickname?query=ghost",
+            )
+
+    seed_uid = "UID-seed"
+    seed_game = make_game(game_id=22, nickname="seed", uid=seed_uid)
+    pages = [{"userGames": [seed_game]}]
+    missing_nickname = "ghost"
+    participants = {
+        22: {
+            "userGames": [
+                make_game(game_id=22, nickname=missing_nickname),
+                make_game(game_id=22, nickname=missing_nickname),
+            ]
+        }
+    }
+
+    client = Nickname404Client(pages, participants, {})
+    manager = IngestionManager(
+        client,
+        store,
+        max_nickname_attempts=5,
+        participant_retry_attempts=1,
+    )
+
+    manager.ingest_user(seed_uid)
+
+    assert client.fetch_user_by_nickname_calls == [missing_nickname]
+
+
 def test_ingest_keeps_cached_uid_when_start_missing(store, make_game):
     nickname = "dup"
     old_uid = "UID-old"

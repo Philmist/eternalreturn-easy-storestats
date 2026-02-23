@@ -64,6 +64,7 @@ class IngestionManager:
         self.participant_retry_attempts = int(participant_retry_attempts)
         self.participant_retry_delay = float(participant_retry_delay)
         self.ingest_started_at = dt.datetime.now(dt.timezone.utc)
+        self._not_found_nicknames: Set[str] = set()
 
     def _report(self, message: str) -> None:
         if self._progress_callback:
@@ -84,6 +85,8 @@ class IngestionManager:
             self._parquet.write_from_game_payload(payload)
 
     def _fetch_uid_with_retries(self, nickname: str) -> Optional[str]:
+        if nickname in self._not_found_nicknames:
+            return None
         last_exc: Optional[Exception] = None
         for attempt in range(1, self.max_nickname_attempts + 1):
             try:
@@ -93,6 +96,13 @@ class IngestionManager:
                 if isinstance(uid_value, str) and uid_value:
                     return uid_value
                 raise ValueError(f"Nickname '{nickname}' did not resolve to a uid.")
+            except ApiResponseError as exc:
+                last_exc = exc
+                if is_payload_not_found_error(exc):
+                    self._not_found_nicknames.add(nickname)
+                    break
+                if attempt >= self.max_nickname_attempts:
+                    break
             except Exception as exc:
                 last_exc = exc
                 if attempt >= self.max_nickname_attempts:
