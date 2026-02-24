@@ -3,6 +3,8 @@
 Utilities to ingest Eternal Return Open API data into SQLite and run lightweight analytics. Ships as a small Python package with a simple CLI.
 
 Before using this package, you must read [Eternal Return official API document](https://developer.eternalreturn.io/) and obtain an API key.
+For behavior differences that are hard to infer from the official docs, see
+[`API_BEHAVIOR_NOTES.md`](API_BEHAVIOR_NOTES.md).
 
 ## Package Overview
 
@@ -178,8 +180,8 @@ python -m er_stats.cli --db er.sqlite ingest \
 ```
 
 > [!NOTE]
-> The API now returns a new `uid` (`userId`) on every nickname lookup. Stored nickname→uid mappings are reused unless `/v1/user/games/uid/{uid}` returns 404, in which case the nickname is resolved again. Databases created with older `userNum`-based versions must be recreated for this release.
-> Stale UIDs may be lazily rechecked with `/v1/user/games/uid/{uid}`; a 404 triggers nickname re-resolution, while other responses keep the cached uid.
+> The API now returns a new `uid` (`userId`) on every nickname lookup. Stored nickname→uid mappings are reused unless `/v1/user/games/uid/{uid}` returns payload `401`, in which case the nickname is resolved again. Payload `404` from the same endpoint is treated as "user exists but no game rows available in API DB" and does not trigger nickname re-resolution.
+> Stale UIDs may be lazily rechecked with `/v1/user/games/uid/{uid}`; payload `401` triggers nickname re-resolution, while payload `404` is treated as no-games and other responses keep the cached uid.
 > The developer API may return 403 or 429 when rate limited; the client applies backoff/retries for these, but persistent 403 will abort the current ingest attempt.
 
 This creates partitioned datasets under `data/parquet/`:

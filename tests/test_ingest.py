@@ -450,8 +450,8 @@ def test_ingest_rolls_back_on_interrupt(monkeypatch, store, make_game):
     assert count == 0
 
 
-def test_ingest_retries_uid_on_payload_404_using_nickname(store, make_game):
-    class Payload404Client(FakeClient):
+def test_ingest_retries_uid_on_payload_401_using_nickname(store, make_game):
+    class Payload401Client(FakeClient):
         def __init__(
             self,
             pages: list[Dict[str, Any]],
@@ -468,9 +468,9 @@ def test_ingest_retries_uid_on_payload_404_using_nickname(store, make_game):
             self.fetch_user_games_uids.append(uid)
             if uid == self.stale_uid:
                 raise ApiResponseError(
-                    code=404,
-                    message="User Not Found",
-                    payload={"code": 404, "message": "User Not Found"},
+                    code=401,
+                    message="Unauthorized",
+                    payload={"code": 401, "message": "Unauthorized"},
                     url="https://example.invalid/v1/user/games/uid/stale",
                 )
             if next_token is None:
@@ -478,7 +478,7 @@ def test_ingest_retries_uid_on_payload_404_using_nickname(store, make_game):
             return self.pages[1]
 
     pages = [{"userGames": [make_game(game_id=50, nickname="seed")]}]
-    client = Payload404Client(pages, {}, {"seed": "UID-new"})
+    client = Payload401Client(pages, {}, {"seed": "UID-new"})
     manager = IngestionManager(client, store, fetch_game_details=False)
 
     manager.ingest_user("UID-old", seed_nickname="seed")
@@ -488,7 +488,31 @@ def test_ingest_retries_uid_on_payload_404_using_nickname(store, make_game):
     assert client.fetch_user_by_nickname_calls == ["seed"]
 
 
-def test_ingest_stops_seed_on_repeated_payload_404_resolved_uid_cycle(store, make_game):
+def test_ingest_treats_user_games_payload_404_as_no_games(store, make_game):
+    class NoGamesPayload404Client(FakeClient):
+        def fetch_user_games(
+            self, uid: str, next_token: Optional[str] = None
+        ) -> Dict[str, Any]:
+            self.fetch_user_games_calls.append(next_token)
+            self.fetch_user_games_uids.append(uid)
+            raise ApiResponseError(
+                code=404,
+                message="User Not Found",
+                payload={"code": 404, "message": "User Not Found"},
+                url=f"https://example.invalid/v1/user/games/uid/{uid}",
+            )
+
+    client = NoGamesPayload404Client([], {}, {"seed": "UID-new"})
+    manager = IngestionManager(client, store, fetch_game_details=False)
+
+    discovered = manager.ingest_user("UID-old", seed_nickname="seed")
+
+    assert discovered == set()
+    assert client.fetch_user_games_uids == ["UID-old"]
+    assert client.fetch_user_by_nickname_calls == []
+
+
+def test_ingest_stops_seed_on_repeated_payload_401_resolved_uid_cycle(store, make_game):
     class CyclingUidClient(FakeClient):
         def __init__(
             self,
@@ -519,9 +543,9 @@ def test_ingest_stops_seed_on_repeated_payload_404_resolved_uid_cycle(store, mak
             self.fetch_user_games_uids.append(uid)
             if uid in {"UID-a", "UID-b"}:
                 raise ApiResponseError(
-                    code=404,
-                    message="User Not Found",
-                    payload={"code": 404, "message": "User Not Found"},
+                    code=401,
+                    message="Unauthorized",
+                    payload={"code": 401, "message": "Unauthorized"},
                     url=f"https://example.invalid/v1/user/games/uid/{uid}",
                 )
             return {"userGames": []}
@@ -536,10 +560,10 @@ def test_ingest_stops_seed_on_repeated_payload_404_resolved_uid_cycle(store, mak
     assert client.fetch_user_by_nickname_calls == ["seed", "seed"]
 
 
-def test_ingest_stops_seed_when_payload_404_uid_variant_limit_reached(
+def test_ingest_stops_seed_when_payload_401_uid_variant_limit_reached(
     store, make_game
 ):
-    class UniqueUidPayload404Client(FakeClient):
+    class UniqueUidPayload401Client(FakeClient):
         def __init__(
             self,
             pages: list[Dict[str, Any]],
@@ -569,13 +593,13 @@ def test_ingest_stops_seed_when_payload_404_uid_variant_limit_reached(
             self.fetch_user_games_calls.append(next_token)
             self.fetch_user_games_uids.append(uid)
             raise ApiResponseError(
-                code=404,
-                message="User Not Found",
-                payload={"code": 404, "message": "User Not Found"},
+                code=401,
+                message="Unauthorized",
+                payload={"code": 401, "message": "Unauthorized"},
                 url=f"https://example.invalid/v1/user/games/uid/{uid}",
             )
 
-    client = UniqueUidPayload404Client([], {}, {})
+    client = UniqueUidPayload401Client([], {}, {})
     logs: list[str] = []
     manager = IngestionManager(
         client, store, fetch_game_details=False, progress_callback=logs.append
@@ -586,10 +610,10 @@ def test_ingest_stops_seed_when_payload_404_uid_variant_limit_reached(
     assert discovered == set()
     assert client.fetch_user_games_uids == ["UID-a", "UID-b", "UID-c"]
     assert client.fetch_user_by_nickname_calls == ["seed", "seed"]
-    assert any("payload404 uid variants reached 3" in message for message in logs)
+    assert any("payload401 uid variants reached 3" in message for message in logs)
 
 
-def test_ingest_stops_seed_when_payload_404_resolve_attempt_limit_reached(
+def test_ingest_stops_seed_when_payload_401_resolve_attempt_limit_reached(
     store, make_game
 ):
     class ResolveAttemptLimitClient(FakeClient):
@@ -620,9 +644,9 @@ def test_ingest_stops_seed_when_payload_404_resolve_attempt_limit_reached(
             self.fetch_user_games_calls.append(next_token)
             self.fetch_user_games_uids.append(uid)
             raise ApiResponseError(
-                code=404,
-                message="User Not Found",
-                payload={"code": 404, "message": "User Not Found"},
+                code=401,
+                message="Unauthorized",
+                payload={"code": 401, "message": "Unauthorized"},
                 url=f"https://example.invalid/v1/user/games/uid/{uid}",
             )
 
@@ -645,7 +669,7 @@ def test_ingest_stops_seed_when_payload_404_resolve_attempt_limit_reached(
     assert any("resolve attempts reached 5" in message for message in logs)
 
 
-def test_ingest_stops_seed_when_payload_404_resolves_to_same_uid(store, make_game):
+def test_ingest_stops_seed_when_payload_401_resolves_to_same_uid(store, make_game):
     class SameUidClient(FakeClient):
         def fetch_user_by_nickname(self, nickname: str) -> Dict[str, Any]:
             self.fetch_user_by_nickname_calls.append(nickname)
@@ -664,9 +688,9 @@ def test_ingest_stops_seed_when_payload_404_resolves_to_same_uid(store, make_gam
             self.fetch_user_games_calls.append(next_token)
             self.fetch_user_games_uids.append(uid)
             raise ApiResponseError(
-                code=404,
-                message="User Not Found",
-                payload={"code": 404, "message": "User Not Found"},
+                code=401,
+                message="Unauthorized",
+                payload={"code": 401, "message": "Unauthorized"},
                 url=f"https://example.invalid/v1/user/games/uid/{uid}",
             )
 
@@ -680,7 +704,7 @@ def test_ingest_stops_seed_when_payload_404_resolves_to_same_uid(store, make_gam
     assert client.fetch_user_by_nickname_calls == ["seed"]
 
 
-def test_ingest_from_seeds_continues_after_payload_404_seed_stop(store, make_game):
+def test_ingest_from_seeds_continues_after_payload_401_seed_stop(store, make_game):
     class MixedSeedClient(FakeClient):
         def __init__(
             self,
@@ -727,9 +751,9 @@ def test_ingest_from_seeds_continues_after_payload_404_seed_stop(store, make_gam
             self.fetch_user_games_uids.append(uid)
             if uid in {"UID-a", "UID-b"}:
                 raise ApiResponseError(
-                    code=404,
-                    message="User Not Found",
-                    payload={"code": 404, "message": "User Not Found"},
+                    code=401,
+                    message="Unauthorized",
+                    payload={"code": 401, "message": "Unauthorized"},
                     url=f"https://example.invalid/v1/user/games/uid/{uid}",
                 )
             if uid == "UID-c":

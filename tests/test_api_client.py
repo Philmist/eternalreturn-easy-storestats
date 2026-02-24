@@ -3,7 +3,13 @@ from typing import Any, Dict
 import pytest
 import requests
 
-from er_stats.api_client import ApiResponseError, EternalReturnAPIClient
+from er_stats.api_client import (
+    ApiResponseError,
+    EternalReturnAPIClient,
+    is_nickname_not_found_error,
+    is_user_games_no_games_error,
+    is_user_games_uid_missing_error,
+)
 
 
 class _Resp:
@@ -132,3 +138,38 @@ def test_fetch_user_games_raises_on_http_404():
 
     with pytest.raises(requests.HTTPError):
         client.fetch_user_games("UID-1")
+
+
+def test_endpoint_specific_error_classification_for_user_games():
+    uid_missing = ApiResponseError(
+        code=401,
+        message="Unauthorized",
+        payload={"code": 401, "message": "Unauthorized"},
+        url="https://example.invalid/v1/user/games/uid/UID-1",
+    )
+    no_games = ApiResponseError(
+        code=404,
+        message="User Not Found",
+        payload={"code": 404, "message": "User Not Found"},
+        url="https://example.invalid/v1/user/games/uid/UID-1",
+    )
+
+    assert is_user_games_uid_missing_error(uid_missing)
+    assert not is_user_games_no_games_error(uid_missing)
+    assert not is_nickname_not_found_error(uid_missing)
+
+    assert is_user_games_no_games_error(no_games)
+    assert not is_user_games_uid_missing_error(no_games)
+    assert not is_nickname_not_found_error(no_games)
+
+
+def test_endpoint_specific_error_classification_for_nickname():
+    nickname_missing = ApiResponseError(
+        code=404,
+        message="User Not Found",
+        payload={"code": 404, "message": "User Not Found"},
+        url="https://example.invalid/v1/user/nickname?query=ghost",
+    )
+    assert is_nickname_not_found_error(nickname_missing)
+    assert not is_user_games_uid_missing_error(nickname_missing)
+    assert not is_user_games_no_games_error(nickname_missing)

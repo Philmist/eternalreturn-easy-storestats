@@ -40,10 +40,40 @@ def is_transport_not_found_error(exc: Exception) -> bool:
     return status == 404
 
 
-def is_payload_not_found_error(exc: Exception) -> bool:
-    """Return True when API payload-level code indicates not found."""
+def _is_api_error_for_path(exc: Exception, path_fragment: str) -> bool:
+    if not isinstance(exc, ApiResponseError):
+        return False
+    return path_fragment in exc.url
 
-    return isinstance(exc, ApiResponseError) and exc.code == 404
+
+def is_user_games_uid_missing_error(exc: Exception) -> bool:
+    """Return True when user-games response means missing UID.
+
+    This is an endpoint-specific workaround for current API behavior.
+    """
+
+    return _is_api_error_for_path(exc, "/v1/user/games/uid/") and (
+        isinstance(exc, ApiResponseError) and exc.code == 401
+    )
+
+
+def is_user_games_no_games_error(exc: Exception) -> bool:
+    """Return True when user-games response means no games in server-side DB.
+
+    This is an endpoint-specific workaround for current API behavior.
+    """
+
+    return _is_api_error_for_path(exc, "/v1/user/games/uid/") and (
+        isinstance(exc, ApiResponseError) and exc.code == 404
+    )
+
+
+def is_nickname_not_found_error(exc: Exception) -> bool:
+    """Return True when nickname lookup reports a missing user."""
+
+    return _is_api_error_for_path(exc, "/v1/user/nickname") and (
+        isinstance(exc, ApiResponseError) and exc.code == 404
+    )
 
 
 class EternalReturnAPIClient:
@@ -230,6 +260,8 @@ class EternalReturnAPIClient:
 __all__ = [
     "ApiResponseError",
     "EternalReturnAPIClient",
-    "is_payload_not_found_error",
+    "is_nickname_not_found_error",
     "is_transport_not_found_error",
+    "is_user_games_no_games_error",
+    "is_user_games_uid_missing_error",
 ]

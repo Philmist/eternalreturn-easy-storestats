@@ -1,1 +1,1 @@
-{"code": 404, "message": "User Not Found"}
+{"code": 401, "message": "Unauthorized"}
