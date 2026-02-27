@@ -31,8 +31,8 @@ constraint.
 For this endpoint, this project uses the following interpretation:
 
 - `code: 200`: Normal success
-- `code: 401`: Treat as missing/invalid UID for ingestion recovery
-- `code: 404`: Treat as existing user with no game rows available in API DB
+- `code: 401`: Treat as missing/invalid UID and attempt seed recovery when context is available
+- `code: 404`: Ambiguous (`no games` or stale UID after nickname change). Attempt seed recovery when context is available
 
 Important:
 - Do not use the payload `message` alone for classification.
@@ -51,18 +51,19 @@ Important:
 
 ### A) UID recovery trigger
 
-`uid -> user/games` recovery logic is triggered only when:
+`uid -> user/games` recovery logic is triggered when:
 
 - Endpoint is `/v1/user/games/uid/{uid}`
-- Payload code is `401`
+- Payload code is `401` or `404`
+- Seed nickname context is available
 
 ### B) No-games handling
 
 When `/v1/user/games/uid/{uid}` returns payload `404`:
 
-- Do not re-resolve nickname
-- Treat as "no games available"
-- Stop ingest for that UID gracefully
+- First try seed nickname re-resolution (same guardrails as `401` path)
+- If recovery succeeds with a different UID, continue ingest using that UID
+- If recovery is unavailable or fails, treat as "no games available" for this ingest attempt and stop gracefully
 
 ### C) Nickname not found caching
 
@@ -73,7 +74,7 @@ When `/v1/user/nickname` returns payload `404`:
 
 ### D) Loop guardrails for repeated UID recovery
 
-When recovery keeps returning UID variants that fail with payload `401`, stop
+When recovery keeps returning UID variants that fail with payload `401`/`404`, stop
 the current seed using both guardrails:
 
 - UID variant limit per seed: `3`

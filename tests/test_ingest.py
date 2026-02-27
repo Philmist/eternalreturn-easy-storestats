@@ -392,6 +392,51 @@ def test_ingest_keeps_cached_uid_when_start_missing(store, make_game):
     assert nickname not in client.fetch_user_by_nickname_calls
 
 
+def test_participant_uid_payload_404_recheck_skips_nickname_recovery(store, make_game):
+    class ParticipantUid404Client(FakeClient):
+        def fetch_user_games(
+            self, uid: str, next_token: Optional[str] = None
+        ) -> Dict[str, Any]:
+            self.fetch_user_games_calls.append(next_token)
+            self.fetch_user_games_uids.append(uid)
+            if uid == "UID-old":
+                raise ApiResponseError(
+                    code=404,
+                    message="User Not Found",
+                    payload={"code": 404, "message": "User Not Found"},
+                    url=f"https://example.invalid/v1/user/games/uid/{uid}",
+                )
+            return {"userGames": [make_game(game_id=31, nickname="seed", uid=uid)]}
+
+    nickname = "dup"
+    old_uid = "UID-old"
+    old_game = make_game(game_id=1, nickname=nickname, uid=old_uid)
+    old_game["startDtm"] = "2025-01-01T00:00:00+00:00"
+    store.upsert_from_game_payload(old_game)
+    store.update_user_last_checked(old_uid, "2025-01-01T00:00:00+00:00")
+
+    seed_uid = "UID-seed"
+    seed_game = make_game(game_id=31, nickname="seed", uid=seed_uid)
+    pages = [{"userGames": [seed_game]}]
+
+    participant = make_game(game_id=31, nickname=nickname)
+    participant["startDtm"] = "2025-01-03T00:00:00+00:00"
+    participants = {31: {"userGames": [participant]}}
+
+    client = ParticipantUid404Client(pages, participants, {"seed": seed_uid})
+    manager = IngestionManager(
+        client,
+        store,
+        uid_recheck_interval=dt.timedelta(seconds=0),
+        participant_retry_attempts=1,
+    )
+
+    manager.ingest_user(seed_uid)
+
+    assert old_uid in client.fetch_user_games_uids
+    assert nickname not in client.fetch_user_by_nickname_calls
+
+
 def test_ingest_marks_incomplete_on_participant_fail(store, make_game):
     seed_uid = "UID-seed"
     seed_game = make_game(game_id=40, nickname="seed", uid=seed_uid)
@@ -488,8 +533,53 @@ def test_ingest_retries_uid_on_payload_401_using_nickname(store, make_game):
     assert client.fetch_user_by_nickname_calls == ["seed"]
 
 
-def test_ingest_treats_user_games_payload_404_as_no_games(store, make_game):
-    class NoGamesPayload404Client(FakeClient):
+def test_ingest_recovers_uid_on_payload_404_using_nickname(store, make_game):
+    class RecoverablePayload404Client(FakeClient):
+        def __init__(
+            self,
+            pages: list[Dict[str, Any]],
+            participants: Dict[int, Dict[str, Any]],
+            users: Dict[str, str],
+        ):
+            super().__init__(pages, participants, users)
+            self.stale_uid = "UID-old"
+
+        def fetch_user_games(
+            self, uid: str, next_token: Optional[str] = None
+        ) -> Dict[str, Any]:
+            self.fetch_user_games_calls.append(next_token)
+            self.fetch_user_games_uids.append(uid)
+            if uid == self.stale_uid:
+                raise ApiResponseError(
+                    code=404,
+                    message="User Not Found",
+                    payload={"code": 404, "message": "User Not Found"},
+                    url=f"https://example.invalid/v1/user/games/uid/{uid}",
+                )
+            return {"userGames": [make_game(game_id=60, nickname="seed", uid=uid)]}
+
+    client = RecoverablePayload404Client([], {}, {"seed": "UID-new"})
+    manager = IngestionManager(client, store, fetch_game_details=False)
+
+    manager.ingest_user("UID-old", seed_nickname="seed")
+
+    assert client.fetch_user_games_uids == ["UID-old", "UID-new"]
+    assert client.fetch_user_by_nickname_calls == ["seed"]
+
+
+def test_ingest_stops_seed_on_payload_404_when_resolved_uid_unchanged(store, make_game):
+    class UnchangedUidPayload404Client(FakeClient):
+        def fetch_user_by_nickname(self, nickname: str) -> Dict[str, Any]:
+            self.fetch_user_by_nickname_calls.append(nickname)
+            return {
+                "code": 200,
+                "message": "Success",
+                "user": {
+                    "nickname": nickname,
+                    "userId": "UID-old",
+                },
+            }
+
         def fetch_user_games(
             self, uid: str, next_token: Optional[str] = None
         ) -> Dict[str, Any]:
@@ -502,14 +592,14 @@ def test_ingest_treats_user_games_payload_404_as_no_games(store, make_game):
                 url=f"https://example.invalid/v1/user/games/uid/{uid}",
             )
 
-    client = NoGamesPayload404Client([], {}, {"seed": "UID-new"})
+    client = UnchangedUidPayload404Client([], {}, {})
     manager = IngestionManager(client, store, fetch_game_details=False)
 
     discovered = manager.ingest_user("UID-old", seed_nickname="seed")
 
     assert discovered == set()
     assert client.fetch_user_games_uids == ["UID-old"]
-    assert client.fetch_user_by_nickname_calls == []
+    assert client.fetch_user_by_nickname_calls == ["seed"]
 
 
 def test_ingest_stops_seed_on_repeated_payload_401_resolved_uid_cycle(store, make_game):
@@ -560,9 +650,7 @@ def test_ingest_stops_seed_on_repeated_payload_401_resolved_uid_cycle(store, mak
     assert client.fetch_user_by_nickname_calls == ["seed", "seed"]
 
 
-def test_ingest_stops_seed_when_payload_401_uid_variant_limit_reached(
-    store, make_game
-):
+def test_ingest_stops_seed_when_payload_401_uid_variant_limit_reached(store, make_game):
     class UniqueUidPayload401Client(FakeClient):
         def __init__(
             self,
@@ -610,7 +698,7 @@ def test_ingest_stops_seed_when_payload_401_uid_variant_limit_reached(
     assert discovered == set()
     assert client.fetch_user_games_uids == ["UID-a", "UID-b", "UID-c"]
     assert client.fetch_user_by_nickname_calls == ["seed", "seed"]
-    assert any("payload401 uid variants reached 3" in message for message in logs)
+    assert any("failed uid variants reached 3" in message for message in logs)
 
 
 def test_ingest_stops_seed_when_payload_401_resolve_attempt_limit_reached(
@@ -664,7 +752,13 @@ def test_ingest_stops_seed_when_payload_401_resolve_attempt_limit_reached(
     discovered = manager.ingest_user("UID-r0", seed_nickname="seed")
 
     assert discovered == set()
-    assert client.fetch_user_games_uids == ["UID-r0", "UID-r1", "UID-r2", "UID-r3", "UID-r4"]
+    assert client.fetch_user_games_uids == [
+        "UID-r0",
+        "UID-r1",
+        "UID-r2",
+        "UID-r3",
+        "UID-r4",
+    ]
     assert client.fetch_user_by_nickname_calls == ["seed", "seed", "seed", "seed"]
     assert any("resolve attempts reached 5" in message for message in logs)
 
@@ -767,6 +861,39 @@ def test_ingest_from_seeds_continues_after_payload_401_seed_stop(store, make_gam
 
     assert client.fetch_user_games_uids[:2] == ["UID-a", "UID-b"]
     assert "UID-c" in client.fetch_user_games_uids
+
+
+def test_ingest_reports_error_on_payload_401_without_seed_nickname(store, make_game):
+    class Payload401Client(FakeClient):
+        def fetch_user_games(
+            self, uid: str, next_token: Optional[str] = None
+        ) -> Dict[str, Any]:
+            self.fetch_user_games_calls.append(next_token)
+            self.fetch_user_games_uids.append(uid)
+            raise ApiResponseError(
+                code=401,
+                message="Unauthorized",
+                payload={"code": 401, "message": "Unauthorized"},
+                url=f"https://example.invalid/v1/user/games/uid/{uid}",
+            )
+
+    logs: list[str] = []
+    client = Payload401Client([], {}, {})
+    manager = IngestionManager(
+        client,
+        store,
+        fetch_game_details=False,
+        progress_callback=logs.append,
+    )
+
+    discovered = manager.ingest_user("UID-direct")
+
+    assert discovered == set()
+    assert client.fetch_user_games_uids == ["UID-direct"]
+    assert any(
+        "Aborting ingest for uid UID-direct due to error:" in message
+        for message in logs
+    )
 
 
 def test_ingest_raises_on_http_404_endpoint_error(store, make_game):
