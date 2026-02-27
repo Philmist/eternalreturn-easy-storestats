@@ -180,8 +180,8 @@ python -m er_stats.cli --db er.sqlite ingest \
 ```
 
 > [!NOTE]
-> The API now returns a new `uid` (`userId`) on every nickname lookup. Stored nickname→uid mappings are reused unless `/v1/user/games/uid/{uid}` returns payload `401`, in which case the nickname is resolved again. Payload `404` from the same endpoint is treated as "user exists but no game rows available in API DB" and does not trigger nickname re-resolution.
-> Stale UIDs may be lazily rechecked with `/v1/user/games/uid/{uid}`; payload `401` triggers nickname re-resolution, while payload `404` is treated as no-games and other responses keep the cached uid.
+> The API now returns a new `uid` (`userId`) on every nickname lookup. Stored nickname→uid mappings are reused unless `/v1/user/games/uid/{uid}` returns payload `401` or payload `404` while ingesting from a seed nickname, in which case the nickname is resolved again.
+> Stale UIDs may be lazily rechecked with `/v1/user/games/uid/{uid}`; payload `401` and payload `404` both trigger nickname re-resolution when seed nickname context is available. If re-resolution fails, payload `404` is treated as no-games for the current ingest attempt.
 > The developer API may return 403 or 429 when rate limited; the client applies backoff/retries for these, but persistent 403 will abort the current ingest attempt.
 
 This creates partitioned datasets under `data/parquet/`:

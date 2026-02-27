@@ -488,8 +488,53 @@ def test_ingest_retries_uid_on_payload_401_using_nickname(store, make_game):
     assert client.fetch_user_by_nickname_calls == ["seed"]
 
 
-def test_ingest_treats_user_games_payload_404_as_no_games(store, make_game):
-    class NoGamesPayload404Client(FakeClient):
+def test_ingest_recovers_uid_on_payload_404_using_nickname(store, make_game):
+    class RecoverablePayload404Client(FakeClient):
+        def __init__(
+            self,
+            pages: list[Dict[str, Any]],
+            participants: Dict[int, Dict[str, Any]],
+            users: Dict[str, str],
+        ):
+            super().__init__(pages, participants, users)
+            self.stale_uid = "UID-old"
+
+        def fetch_user_games(
+            self, uid: str, next_token: Optional[str] = None
+        ) -> Dict[str, Any]:
+            self.fetch_user_games_calls.append(next_token)
+            self.fetch_user_games_uids.append(uid)
+            if uid == self.stale_uid:
+                raise ApiResponseError(
+                    code=404,
+                    message="User Not Found",
+                    payload={"code": 404, "message": "User Not Found"},
+                    url=f"https://example.invalid/v1/user/games/uid/{uid}",
+                )
+            return {"userGames": [make_game(game_id=60, nickname="seed", uid=uid)]}
+
+    client = RecoverablePayload404Client([], {}, {"seed": "UID-new"})
+    manager = IngestionManager(client, store, fetch_game_details=False)
+
+    manager.ingest_user("UID-old", seed_nickname="seed")
+
+    assert client.fetch_user_games_uids == ["UID-old", "UID-new"]
+    assert client.fetch_user_by_nickname_calls == ["seed"]
+
+
+def test_ingest_stops_seed_on_payload_404_when_resolved_uid_unchanged(store, make_game):
+    class UnchangedUidPayload404Client(FakeClient):
+        def fetch_user_by_nickname(self, nickname: str) -> Dict[str, Any]:
+            self.fetch_user_by_nickname_calls.append(nickname)
+            return {
+                "code": 200,
+                "message": "Success",
+                "user": {
+                    "nickname": nickname,
+                    "userId": "UID-old",
+                },
+            }
+
         def fetch_user_games(
             self, uid: str, next_token: Optional[str] = None
         ) -> Dict[str, Any]:
@@ -502,14 +547,14 @@ def test_ingest_treats_user_games_payload_404_as_no_games(store, make_game):
                 url=f"https://example.invalid/v1/user/games/uid/{uid}",
             )
 
-    client = NoGamesPayload404Client([], {}, {"seed": "UID-new"})
+    client = UnchangedUidPayload404Client([], {}, {})
     manager = IngestionManager(client, store, fetch_game_details=False)
 
     discovered = manager.ingest_user("UID-old", seed_nickname="seed")
 
     assert discovered == set()
     assert client.fetch_user_games_uids == ["UID-old"]
-    assert client.fetch_user_by_nickname_calls == []
+    assert client.fetch_user_by_nickname_calls == ["seed"]
 
 
 def test_ingest_stops_seed_on_repeated_payload_401_resolved_uid_cycle(store, make_game):
@@ -560,9 +605,7 @@ def test_ingest_stops_seed_on_repeated_payload_401_resolved_uid_cycle(store, mak
     assert client.fetch_user_by_nickname_calls == ["seed", "seed"]
 
 
-def test_ingest_stops_seed_when_payload_401_uid_variant_limit_reached(
-    store, make_game
-):
+def test_ingest_stops_seed_when_payload_401_uid_variant_limit_reached(store, make_game):
     class UniqueUidPayload401Client(FakeClient):
         def __init__(
             self,
@@ -610,7 +653,7 @@ def test_ingest_stops_seed_when_payload_401_uid_variant_limit_reached(
     assert discovered == set()
     assert client.fetch_user_games_uids == ["UID-a", "UID-b", "UID-c"]
     assert client.fetch_user_by_nickname_calls == ["seed", "seed"]
-    assert any("payload401 uid variants reached 3" in message for message in logs)
+    assert any("failed uid variants reached 3" in message for message in logs)
 
 
 def test_ingest_stops_seed_when_payload_401_resolve_attempt_limit_reached(
@@ -664,7 +707,13 @@ def test_ingest_stops_seed_when_payload_401_resolve_attempt_limit_reached(
     discovered = manager.ingest_user("UID-r0", seed_nickname="seed")
 
     assert discovered == set()
-    assert client.fetch_user_games_uids == ["UID-r0", "UID-r1", "UID-r2", "UID-r3", "UID-r4"]
+    assert client.fetch_user_games_uids == [
+        "UID-r0",
+        "UID-r1",
+        "UID-r2",
+        "UID-r3",
+        "UID-r4",
+    ]
     assert client.fetch_user_by_nickname_calls == ["seed", "seed", "seed", "seed"]
     assert any("resolve attempts reached 5" in message for message in logs)
 

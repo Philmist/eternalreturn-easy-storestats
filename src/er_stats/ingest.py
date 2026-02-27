@@ -60,6 +60,7 @@ class IngestionManager:
         max_nickname_attempts: int = 3,
         max_payload404_uids_per_seed: int = 3,
         max_seed_uid_resolve_attempts: int = 5,
+        max_failed_uids_per_seed: int | None = None,
         participant_retry_attempts: int = 2,
         participant_retry_delay: float = 1.0,
     ) -> None:
@@ -76,6 +77,10 @@ class IngestionManager:
         self.uid_recheck_interval = uid_recheck_interval
         self.max_nickname_attempts = int(max_nickname_attempts)
         self.max_payload404_uids_per_seed = int(max_payload404_uids_per_seed)
+        if max_failed_uids_per_seed is None:
+            self.max_failed_uids_per_seed = self.max_payload404_uids_per_seed
+        else:
+            self.max_failed_uids_per_seed = int(max_failed_uids_per_seed)
         self.max_seed_uid_resolve_attempts = int(max_seed_uid_resolve_attempts)
         self.participant_retry_attempts = int(participant_retry_attempts)
         self.participant_retry_delay = float(participant_retry_delay)
@@ -175,11 +180,11 @@ class IngestionManager:
         self._record_seed_uid_missing_uid(seed_nickname, uid)
         uid_missing_uids = self._uid_missing_uids_by_seed.get(seed_nickname, set())
         uid_missing_count = len(uid_missing_uids)
-        if uid_missing_count >= self.max_payload404_uids_per_seed:
+        if uid_missing_count >= self.max_failed_uids_per_seed:
             sorted_uids = ", ".join(sorted(uid_missing_uids))
             reason = (
-                f"Stopping ingest for seed '{seed_nickname}' because payload401 uid variants reached "
-                f"{uid_missing_count} (limit {self.max_payload404_uids_per_seed}; uids={sorted_uids})."
+                f"Stopping ingest for seed '{seed_nickname}' because failed uid variants reached "
+                f"{uid_missing_count} (limit {self.max_failed_uids_per_seed}; uids={sorted_uids})."
             )
             return None, reason
         resolve_attempt = self._next_seed_uid_resolve_attempt(seed_nickname)
@@ -190,6 +195,50 @@ class IngestionManager:
             )
             return None, reason
         return resolve_attempt, None
+
+    def _try_recover_seed_uid(
+        self,
+        *,
+        uid: str,
+        seed_nickname: Optional[str],
+        error_label: str,
+    ) -> Optional[str]:
+        """Attempt to recover a seed UID by resolving nickname again."""
+
+        if not seed_nickname:
+            return None
+        resolve_attempt, stop_reason = self._prepare_seed_recovery_after_uid_missing(
+            seed_nickname, uid
+        )
+        if stop_reason:
+            self._report(stop_reason)
+            return None
+        assert resolve_attempt is not None
+        self._report(
+            f"UID {uid} returned {error_label}; retrying nickname lookup for '{seed_nickname}' "
+            f"(resolve attempt {resolve_attempt})"
+        )
+        resolved_uid = self._fetch_uid_with_retries(seed_nickname)
+        if not resolved_uid:
+            self._report(
+                f"Stopping ingest for seed '{seed_nickname}' because nickname lookup failed "
+                f"after {error_label} at resolve attempt {resolve_attempt}."
+            )
+            return None
+        self._report(
+            f"Resolved nickname '{seed_nickname}' to uid {resolved_uid} at attempt {resolve_attempt}"
+        )
+        if resolved_uid == uid:
+            self._report(
+                f"Stopping ingest for seed '{seed_nickname}' because resolved uid remained unchanged after {error_label} ({uid})."
+            )
+            return None
+        if self._is_seed_uid_missing_uid(seed_nickname, resolved_uid):
+            self._report(
+                f"Stopping ingest for seed '{seed_nickname}' because resolved uid {resolved_uid} already returned payload 401/404 in this run."
+            )
+            return None
+        return resolved_uid
 
     def _needs_uid_recheck(self, uid: str) -> bool:
         last_checked = self.store.get_user_last_checked(uid)
@@ -221,35 +270,23 @@ class IngestionManager:
             return uid
         except (requests.HTTPError, ApiResponseError) as exc:
             if is_user_games_uid_missing_error(exc) and nickname:
-                resolve_attempt, stop_reason = (
-                    self._prepare_seed_recovery_after_uid_missing(nickname, uid)
+                resolved_uid = self._try_recover_seed_uid(
+                    uid=uid,
+                    seed_nickname=nickname,
+                    error_label="payload 401",
                 )
-                if stop_reason:
-                    self._report(stop_reason)
-                    return None
-                assert resolve_attempt is not None
-                self._report(
-                    "Payload 401 from user/games while validating uid "
-                    f"{uid}; retrying nickname '{nickname}' resolve attempt {resolve_attempt}"
-                )
-                resolved_uid = self._fetch_uid_with_retries(nickname)
                 if resolved_uid:
-                    if resolved_uid == uid:
-                        self._report(
-                            f"Stopping ingest for seed '{nickname}' because resolved uid remained unchanged after payload 401 ({uid})."
-                        )
-                        return None
-                    if self._is_seed_uid_missing_uid(nickname, resolved_uid):
-                        self._report(
-                            f"Stopping ingest for seed '{nickname}' because resolved uid {resolved_uid} already returned payload 401 in this run."
-                        )
-                        return None
-                    self._report(
-                        f"Resolved nickname '{nickname}' to uid {resolved_uid} at attempt {resolve_attempt}"
-                    )
                     self._mark_uid_checked(resolved_uid)
                     return resolved_uid
             if is_user_games_no_games_error(exc):
+                resolved_uid = self._try_recover_seed_uid(
+                    uid=uid,
+                    seed_nickname=nickname,
+                    error_label="payload 404",
+                )
+                if resolved_uid:
+                    self._mark_uid_checked(resolved_uid)
+                    return resolved_uid
                 self._report(
                     f"Payload 404 from user/games for uid {uid} indicates no games; continuing without uid re-resolution."
                 )
@@ -319,44 +356,27 @@ class IngestionManager:
             try:
                 payload = self.client.fetch_user_games(uid, next_token)
             except (requests.HTTPError, ApiResponseError) as exc:
-                if is_user_games_uid_missing_error(exc) and seed_nickname:
-                    resolve_attempt, stop_reason = (
-                        self._prepare_seed_recovery_after_uid_missing(
-                            seed_nickname, uid
-                        )
+                if is_user_games_uid_missing_error(exc):
+                    resolved_uid = self._try_recover_seed_uid(
+                        uid=uid,
+                        seed_nickname=seed_nickname,
+                        error_label="payload 401",
                     )
-                    if stop_reason:
-                        self._report(stop_reason)
-                        break
-                    assert resolve_attempt is not None
-                    self._report(
-                        f"UID {uid} returned payload 401; retrying nickname lookup for '{seed_nickname}' "
-                        f"(resolve attempt {resolve_attempt})"
-                    )
-                    resolved_uid = self._fetch_uid_with_retries(seed_nickname)
-                    if not resolved_uid:
-                        self._report(
-                            f"Stopping ingest for seed '{seed_nickname}' because nickname lookup failed "
-                            f"after payload 401 at resolve attempt {resolve_attempt}."
-                        )
-                        break
-                    self._report(
-                        f"Resolved nickname '{seed_nickname}' to uid {resolved_uid} at attempt {resolve_attempt}"
-                    )
-                    if resolved_uid == uid:
-                        self._report(
-                            f"Stopping ingest for seed '{seed_nickname}' because resolved uid remained unchanged after payload 401 ({uid})."
-                        )
-                        break
-                    if self._is_seed_uid_missing_uid(seed_nickname, resolved_uid):
-                        self._report(
-                            f"Stopping ingest for seed '{seed_nickname}' because resolved uid {resolved_uid} already returned payload 401 in this run."
-                        )
-                        break
-                    uid = resolved_uid
-                    next_token = None
-                    continue
+                    if resolved_uid:
+                        uid = resolved_uid
+                        next_token = None
+                        continue
+                    break
                 if is_user_games_no_games_error(exc):
+                    resolved_uid = self._try_recover_seed_uid(
+                        uid=uid,
+                        seed_nickname=seed_nickname,
+                        error_label="payload 404",
+                    )
+                    if resolved_uid:
+                        uid = resolved_uid
+                        next_token = None
+                        continue
                     self._report(
                         f"Payload 404 from user/games for uid {uid} indicates no games; stopping ingest for this uid."
                     )
