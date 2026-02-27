@@ -381,6 +381,10 @@ class IngestionManager:
                         uid = resolved_uid
                         next_token = None
                         continue
+                    if not seed_nickname:
+                        self._report(
+                            f"Aborting ingest for uid {uid} due to error: {exc}"
+                        )
                     break
                 if is_user_games_no_games_error(exc):
                     resolved_uid = self._try_recover_seed_uid(

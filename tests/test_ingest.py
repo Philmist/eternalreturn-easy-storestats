@@ -863,6 +863,39 @@ def test_ingest_from_seeds_continues_after_payload_401_seed_stop(store, make_gam
     assert "UID-c" in client.fetch_user_games_uids
 
 
+def test_ingest_reports_error_on_payload_401_without_seed_nickname(store, make_game):
+    class Payload401Client(FakeClient):
+        def fetch_user_games(
+            self, uid: str, next_token: Optional[str] = None
+        ) -> Dict[str, Any]:
+            self.fetch_user_games_calls.append(next_token)
+            self.fetch_user_games_uids.append(uid)
+            raise ApiResponseError(
+                code=401,
+                message="Unauthorized",
+                payload={"code": 401, "message": "Unauthorized"},
+                url=f"https://example.invalid/v1/user/games/uid/{uid}",
+            )
+
+    logs: list[str] = []
+    client = Payload401Client([], {}, {})
+    manager = IngestionManager(
+        client,
+        store,
+        fetch_game_details=False,
+        progress_callback=logs.append,
+    )
+
+    discovered = manager.ingest_user("UID-direct")
+
+    assert discovered == set()
+    assert client.fetch_user_games_uids == ["UID-direct"]
+    assert any(
+        "Aborting ingest for uid UID-direct due to error:" in message
+        for message in logs
+    )
+
+
 def test_ingest_raises_on_http_404_endpoint_error(store, make_game):
     class HTTP404Client(FakeClient):
         def __init__(
