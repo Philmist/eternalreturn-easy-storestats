@@ -392,6 +392,51 @@ def test_ingest_keeps_cached_uid_when_start_missing(store, make_game):
     assert nickname not in client.fetch_user_by_nickname_calls
 
 
+def test_participant_uid_payload_404_recheck_skips_nickname_recovery(store, make_game):
+    class ParticipantUid404Client(FakeClient):
+        def fetch_user_games(
+            self, uid: str, next_token: Optional[str] = None
+        ) -> Dict[str, Any]:
+            self.fetch_user_games_calls.append(next_token)
+            self.fetch_user_games_uids.append(uid)
+            if uid == "UID-old":
+                raise ApiResponseError(
+                    code=404,
+                    message="User Not Found",
+                    payload={"code": 404, "message": "User Not Found"},
+                    url=f"https://example.invalid/v1/user/games/uid/{uid}",
+                )
+            return {"userGames": [make_game(game_id=31, nickname="seed", uid=uid)]}
+
+    nickname = "dup"
+    old_uid = "UID-old"
+    old_game = make_game(game_id=1, nickname=nickname, uid=old_uid)
+    old_game["startDtm"] = "2025-01-01T00:00:00+00:00"
+    store.upsert_from_game_payload(old_game)
+    store.update_user_last_checked(old_uid, "2025-01-01T00:00:00+00:00")
+
+    seed_uid = "UID-seed"
+    seed_game = make_game(game_id=31, nickname="seed", uid=seed_uid)
+    pages = [{"userGames": [seed_game]}]
+
+    participant = make_game(game_id=31, nickname=nickname)
+    participant["startDtm"] = "2025-01-03T00:00:00+00:00"
+    participants = {31: {"userGames": [participant]}}
+
+    client = ParticipantUid404Client(pages, participants, {"seed": seed_uid})
+    manager = IngestionManager(
+        client,
+        store,
+        uid_recheck_interval=dt.timedelta(seconds=0),
+        participant_retry_attempts=1,
+    )
+
+    manager.ingest_user(seed_uid)
+
+    assert old_uid in client.fetch_user_games_uids
+    assert nickname not in client.fetch_user_by_nickname_calls
+
+
 def test_ingest_marks_incomplete_on_participant_fail(store, make_game):
     seed_uid = "UID-seed"
     seed_game = make_game(game_id=40, nickname="seed", uid=seed_uid)

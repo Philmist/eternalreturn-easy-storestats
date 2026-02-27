@@ -258,7 +258,13 @@ class IngestionManager:
         except Exception:
             pass
 
-    def _validate_uid(self, uid: str, nickname: Optional[str]) -> Optional[str]:
+    def _validate_uid(
+        self,
+        uid: str,
+        nickname: Optional[str],
+        *,
+        allow_seed_recovery: bool = False,
+    ) -> Optional[str]:
         """Return a valid uid (possibly re-resolved) or None when not recoverable."""
 
         if not self._needs_uid_recheck(uid):
@@ -269,7 +275,11 @@ class IngestionManager:
             self._mark_uid_checked(uid)
             return uid
         except (requests.HTTPError, ApiResponseError) as exc:
-            if is_user_games_uid_missing_error(exc) and nickname:
+            if (
+                is_user_games_uid_missing_error(exc)
+                and nickname
+                and allow_seed_recovery
+            ):
                 resolved_uid = self._try_recover_seed_uid(
                     uid=uid,
                     seed_nickname=nickname,
@@ -279,14 +289,15 @@ class IngestionManager:
                     self._mark_uid_checked(resolved_uid)
                     return resolved_uid
             if is_user_games_no_games_error(exc):
-                resolved_uid = self._try_recover_seed_uid(
-                    uid=uid,
-                    seed_nickname=nickname,
-                    error_label="payload 404",
-                )
-                if resolved_uid:
-                    self._mark_uid_checked(resolved_uid)
-                    return resolved_uid
+                if allow_seed_recovery and nickname:
+                    resolved_uid = self._try_recover_seed_uid(
+                        uid=uid,
+                        seed_nickname=nickname,
+                        error_label="payload 404",
+                    )
+                    if resolved_uid:
+                        self._mark_uid_checked(resolved_uid)
+                        return resolved_uid
                 self._report(
                     f"Payload 404 from user/games for uid {uid} indicates no games; continuing without uid re-resolution."
                 )
@@ -307,7 +318,11 @@ class IngestionManager:
 
         if seed_nickname:
             try:
-                validated = self._validate_uid(uid, seed_nickname)
+                validated = self._validate_uid(
+                    uid,
+                    seed_nickname,
+                    allow_seed_recovery=True,
+                )
                 if validated is None:
                     self._report(
                         f"Aborting ingest for uid {uid}: failed to revalidate nickname '{seed_nickname}'"
@@ -551,7 +566,9 @@ class IngestionManager:
                 if self._needs_uid_recheck(uid):
                     try:
                         validated_uid = self._validate_uid(
-                            uid, participant.get("nickname")
+                            uid,
+                            participant.get("nickname"),
+                            allow_seed_recovery=False,
                         )
                     except Exception as exc:
                         self._report(
