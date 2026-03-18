@@ -1,3 +1,6 @@
+-- RUN FROM PROJECT ROOT
+-- `cat .\sql-queries\get_seed.duckdb.sql | duckdb -noheader -list -cmd ".output data/seeds.txt"`
+
 -- ATTACH SQLite3 DB
 ATTACH 'data/db.sqlite3' AS db (READONLY);
 
